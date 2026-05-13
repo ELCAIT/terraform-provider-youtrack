@@ -1,0 +1,1 @@
+terraform import youtrack_issue_link_type.depends <ISSUE_LINK_TYPE_ID>

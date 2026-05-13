@@ -1,0 +1,5 @@
+provider_installation {
+  dev_overrides {
+      "elcait/youtrack" = "/home/flos/go/bin"
+  }
+}

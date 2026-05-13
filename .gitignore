@@ -26,7 +26,18 @@ go.work.sum
 
 # env file
 .env
+.envrc
+
+# Terraform local state and cache
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+youtrack-provider
 
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# local youtrack data
+_docker-compose/**
