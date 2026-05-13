@@ -22,7 +22,7 @@ GitHub Actions workflow [ci.yml](.github/workflows/ci.yml) runs:
 
 - Unit tests with coverage
 - golangci-lint
-- SonarQube analysis (when `SONAR_TOKEN` and `SONAR_HOST_URL` are configured)
+- SonarQube analysis (when `SONAR_TOKEN` is configured)
 
 ## Release
 
