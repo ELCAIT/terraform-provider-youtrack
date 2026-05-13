@@ -1,4 +1,4 @@
-module github.com/elcait/youtrack-provider
+module github.com/elcait/terraform-provider-youtrack
 
 go 1.26.2
 

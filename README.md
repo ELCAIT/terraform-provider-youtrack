@@ -1,4 +1,4 @@
-# youtrack-provider
+# terraform-provider-youtrack
 
 OpenTofu provider for YouTrack to manage settings, roles, custom fields, and project templates.
 

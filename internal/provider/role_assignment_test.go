@@ -6,7 +6,7 @@ package provider
 import (
 	"testing"
 
-	helpers "github.com/elcait/youtrack-provider/internal/helpers"
+	helpers "github.com/elcait/terraform-provider-youtrack/internal/helpers"
 
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )

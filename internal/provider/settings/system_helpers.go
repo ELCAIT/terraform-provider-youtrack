@@ -8,7 +8,7 @@ import (
 
 	youtrack "github.com/elcait/youtrack-api-client/client"
 
-	helpers "github.com/elcait/youtrack-provider/internal/helpers"
+	helpers "github.com/elcait/terraform-provider-youtrack/internal/helpers"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"

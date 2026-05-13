@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	helpers "github.com/elcait/youtrack-provider/internal/helpers"
+	helpers "github.com/elcait/terraform-provider-youtrack/internal/helpers"
 
 	youtrack "github.com/elcait/youtrack-api-client/client"
 

@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/elcait/youtrack-provider/internal/provider/settings"
+	"github.com/elcait/terraform-provider-youtrack/internal/provider/settings"
 
 	youtrack "github.com/elcait/youtrack-api-client/client"
 

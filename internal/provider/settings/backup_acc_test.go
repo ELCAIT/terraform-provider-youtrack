@@ -11,8 +11,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 
-	ytprovider "github.com/elcait/youtrack-provider/internal/provider"
-	ytsettings "github.com/elcait/youtrack-provider/internal/provider/settings"
+	ytprovider "github.com/elcait/terraform-provider-youtrack/internal/provider"
+	ytsettings "github.com/elcait/terraform-provider-youtrack/internal/provider/settings"
 
 	youtrack "github.com/elcait/youtrack-api-client/client"
 )

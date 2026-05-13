@@ -8,7 +8,7 @@ import (
 	"flag"
 	"log"
 
-	"github.com/elcait/youtrack-provider/internal/provider"
+	"github.com/elcait/terraform-provider-youtrack/internal/provider"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 )
 
