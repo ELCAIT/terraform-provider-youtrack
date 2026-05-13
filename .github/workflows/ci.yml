@@ -47,7 +47,6 @@ jobs:
           gotestsum --junitfile coverage.xml -- -coverprofile=coverage.out -covermode=atomic ./...
 
       - name: SonarQube scan
-        if: ${{ secrets.SONAR_TOKEN != '' }}
         uses: SonarSource/sonarqube-scan-action@v5
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
