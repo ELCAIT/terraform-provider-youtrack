@@ -1,9 +1,19 @@
+## 1.0.1
+FEATURES:
+
+IMPROVEMENTS:
+- Changed licence from GPL-3 to MPL-2.0
+
+BUG FIXES:
+
 ## 1.0.0
 FEATURES:
 
 IMPROVEMENTS:
 - Refactor codebase to be public
 - Extract client to a dedicated public go library (youtrack-api-client)
+
+BUG FIXES:
 
 ## 0.5.0
 FEATURES:
