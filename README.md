@@ -2,6 +2,9 @@
 
 OpenTofu provider for YouTrack to manage settings, roles, custom fields, and project templates.
 
+This software is licensed under the Mozilla Public License 2.0 (MPL-2.0).
+See the LICENSE file for details.
+
 ## Provider Source
 
 Use the provider from the OpenTofu registry as:
