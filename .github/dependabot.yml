@@ -17,6 +17,6 @@ updates:
       prefix: chore(ci)
 
   - package-ecosystem: "docker-compose"
-    directory: "/"
+    directory: "_docker-compose"
     schedule:
       interval: "daily"

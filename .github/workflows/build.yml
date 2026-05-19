@@ -40,7 +40,7 @@ jobs:
 
       - name: Run tests
         run: |
-          go install gotest.tools/gotestsum
+          go install gotest.tools/gotestsum@v1.13.0
           gotestsum --junitfile coverage.xml -- -coverprofile=coverage.out -covermode=atomic ./...
 
       - name: SonarQube Scan
