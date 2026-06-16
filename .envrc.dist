@@ -31,4 +31,4 @@ export YOUTRACK_OAUTH2_USER_INFO_URL="$YOUTRACK_OAUTH2_SERVER_URL/userinfo"
 export YOUTRACK_OAUTH2_USER_ID_PATH="sub"
 
 # install golangci-lint in go Path
-curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.10.1
+curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.12.2
