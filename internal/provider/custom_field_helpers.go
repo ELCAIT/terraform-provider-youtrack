@@ -114,7 +114,7 @@ func (m *customFieldResourceModel) fromAPIModel(apiModel *youtrack.CustomField) 
 
 	m.FieldDefaults = types.ObjectValueMust(customFieldDefaultsAttrTypes(), map[string]attr.Value{
 		"can_be_empty":     types.BoolValue(apiModel.FieldDefaults.CanBeEmpty),
-		"empty_field_text": helpers.StringOrNull(apiModel.FieldDefaults.EmptyFieldText),
+		"empty_field_text": helpers.StringOrEmpty(apiModel.FieldDefaults.EmptyFieldText),
 		"is_public":        types.BoolValue(apiModel.FieldDefaults.IsPublic),
 		"bundle_id":        bundleID,
 		"bundle_name":      bundleName,

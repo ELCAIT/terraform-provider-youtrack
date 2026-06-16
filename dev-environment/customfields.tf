@@ -24,7 +24,7 @@ resource "youtrack_custom_field" "severity" {
 
   field_defaults = {
     can_be_empty     = true
-    empty_field_text = "No severity"
+    empty_field_text = ""
     is_public        = true
     # Only one default bundle reference is supported for this custom field.
     bundle_id = youtrack_enum_bundle.severity_values.id

@@ -1,3 +1,12 @@
+## 1.0.2
+FEATURES:
+
+IMPROVEMENTS:
+- Update dependencies.
+
+BUG FIXES:
+- Fix clearing of customfield empty_field_text attribute.
+
 ## 1.0.1
 FEATURES:
 

@@ -209,6 +209,11 @@ func StringOrNull(s string) types.String {
 	return types.StringValue(s)
 }
 
+// StringOrEmpty returns a non-null types.String, preserving empty string values.
+func StringOrEmpty(s string) types.String {
+	return types.StringValue(s)
+}
+
 // HolderTypeOrDefault returns the trimmed value if non-empty, otherwise the fallback.
 func HolderTypeOrDefault(value, fallback string) string {
 	trimmed := strings.TrimSpace(value)
