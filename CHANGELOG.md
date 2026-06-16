@@ -6,6 +6,7 @@ IMPROVEMENTS:
 
 BUG FIXES:
 - Fix clearing of customfield empty_field_text attribute.
+- Fix notification settings acceptance test when mail server not configured in the youtrack instance.
 
 ## 1.0.1
 FEATURES:
