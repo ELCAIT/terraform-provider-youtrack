@@ -90,8 +90,31 @@ func TestCustomFieldModelFromAPIModel(t *testing.T) {
 	helpers.AssertFieldEqual(t, "Name", model.Name.ValueString(), testCustomFieldName)
 	helpers.AssertFieldEqual(t, "FieldTypeID", model.FieldTypeID.ValueString(), testFieldTypeID)
 	helpers.AssertFieldEqual(t, "FieldTypePresentation", model.FieldTypePresentation.ValueString(), testFieldPresentation)
+	helpers.AssertFieldEqual(t, "EmptyFieldText", defaults.EmptyFieldText.ValueString(), "Not set")
 	helpers.AssertFieldEqual(t, "BundleID", defaults.BundleID.ValueString(), testBundleID)
 	helpers.AssertFieldEqual(t, "BundleName", defaults.BundleName.ValueString(), testBundleName)
+}
+
+func TestCustomFieldModelFromAPIModelEmptyFieldTextPreserved(t *testing.T) {
+	t.Parallel()
+
+	apiModel := &youtrack.CustomField{
+		ID:            testCustomFieldID,
+		Name:          testCustomFieldName,
+		FieldType:     youtrack.FieldType{ID: testFieldTypeID},
+		FieldDefaults: &youtrack.CustomFieldDefaults{CanBeEmpty: true, EmptyFieldText: "", IsPublic: true},
+	}
+
+	var model customFieldResourceModel
+	model.fromAPIModel(apiModel)
+
+	var defaults customFieldDefaultsModel
+	if diags := model.FieldDefaults.As(context.Background(), &defaults, basetypes.ObjectAsOptions{}); diags.HasError() {
+		t.Fatalf("failed to decode field_defaults object: %v", diags)
+	}
+
+	helpers.AssertFieldEqual(t, "EmptyFieldText.IsNull", defaults.EmptyFieldText.IsNull(), false)
+	helpers.AssertFieldEqual(t, "EmptyFieldText", defaults.EmptyFieldText.ValueString(), "")
 }
 
 func TestBundleTypeForFieldTypeID(t *testing.T) {
