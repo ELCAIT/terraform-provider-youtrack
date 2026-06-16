@@ -77,26 +77,25 @@ func TestAccNotificationSettings(t *testing.T) {
 	})
 
 	// Use the server's existing values to avoid inconsistent-result errors from API normalization.
-	// We only toggle is_enabled to verify the resource can perform an update.
+	// We only toggle is_enabled when enabling is valid with current values.
 	initialEnabled := original.IsEnabled
-	updatedEnabled := !initialEnabled
+	updatedEnabled := initialEnabled
+	if initialEnabled {
+		updatedEnabled = false
+	} else if original.MailProtocol != "" && original.Host != "" {
+		updatedEnabled = true
+	}
 
 	protocol := original.MailProtocol
 	if protocol == "" {
 		protocol = "SMTP"
 	}
 	host := original.Host
-	if host == "" {
-		host = "localhost"
-	}
 	port := original.Port
 	if port == 0 {
 		port = 25
 	}
 	from := original.From
-	if from == "" {
-		from = "noreply@example.com"
-	}
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories(),
