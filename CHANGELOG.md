@@ -2,6 +2,7 @@
 FEATURES:
 
 IMPROVEMENTS:
+- Remove mandatory field_type parameter for project custom field resource. It is now derived from the global custom field type.
 
 BUG FIXES:
 - Fix error when removing a bundle value.

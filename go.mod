@@ -2,8 +2,6 @@ module github.com/elcait/terraform-provider-youtrack
 
 go 1.26.4
 
-replace github.com/elcait/youtrack-api-client => ../youtrack-api-client
-
 require (
 	github.com/elcait/youtrack-api-client v1.1.1
 	github.com/hashicorp/terraform-plugin-framework v1.19.0
