@@ -3,13 +3,20 @@ resource "youtrack_enum_bundle" "severity_values" {
 
   values = [
     {
-      name = "Critical"
+      name     = "Critical"
+      archived = false
     },
     {
-      name = "Major"
+      name     = "High"
+      archived = false
     },
     {
-      name = "Minor"
+      name     = "Major"
+      archived = false
+    },
+    {
+      name     = "Minor"
+      archived = false
     },
   ]
 }
