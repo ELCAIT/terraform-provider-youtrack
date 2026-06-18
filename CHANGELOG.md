@@ -1,3 +1,11 @@
+## 1.0.3
+FEATURES:
+
+IMPROVEMENTS:
+
+BUG FIXES:
+- Fix error when removing a bundle value.
+
 ## 1.0.2
 FEATURES:
 
