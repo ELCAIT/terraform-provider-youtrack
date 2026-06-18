@@ -1,3 +1,13 @@
+## 1.0.3
+FEATURES:
+
+IMPROVEMENTS:
+- Remove mandatory field_type parameter for project custom field resource. It is now derived from the global custom field type.
+- Update dependencies.
+
+BUG FIXES:
+- Fix error when removing a bundle value.
+
 ## 1.0.2
 FEATURES:
 

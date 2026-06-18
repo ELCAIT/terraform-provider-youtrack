@@ -21,12 +21,13 @@ resource "youtrack_project" "parent" {
 
 # Attach the global "Priority" custom field to the project, using a project-specific bundle
 resource "youtrack_project_custom_field" "priority" {
-  project_id   = youtrack_project.parent.id
-  field_name   = "Priority"
-  field_type   = "EnumProjectCustomField"
-  bundle_name  = "My Project Priorities"
-  can_be_empty = true
-  is_public    = true
+  project_id          = youtrack_project.parent.id
+  field_name          = "Priority"
+  field_type          = "EnumProjectCustomField"
+  bundle_name         = "My Project Priorities"
+  default_value_names = ["Major"]
+  can_be_empty        = true
+  is_public           = true
 }
 ```
 
@@ -36,14 +37,15 @@ resource "youtrack_project_custom_field" "priority" {
 ### Required
 
 - `field_name` (String) The name of the global custom field to attach to the project.
-- `field_type` (String) The $type of the ProjectCustomField to create (e.g., EnumProjectCustomField, StateProjectCustomField).
 - `project_id` (String) The entity ID of the project to attach the custom field to.
 
 ### Optional
 
 - `bundle_name` (String) The name of the bundle to use for this project custom field. Overrides the default bundle from the global custom field. Supported for EnumProjectCustomField and StateProjectCustomField.
 - `can_be_empty` (Boolean) Whether the custom field can have an empty value.
+- `default_value_names` (List of String) Default values set for new issues. Values are resolved by name from the effective bundle. Supported for EnumProjectCustomField and StateProjectCustomField.
 - `empty_field_text` (String) The placeholder text shown when the field has an empty value.
+- `field_type` (String) The $type of the ProjectCustomField to create (e.g., EnumProjectCustomField, StateProjectCustomField). If omitted, it is derived from the global custom field type.
 - `is_public` (Boolean) Whether basic Read/Update Issue permissions are sufficient to access this field.
 
 ### Read-Only

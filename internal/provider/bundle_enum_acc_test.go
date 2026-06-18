@@ -32,8 +32,6 @@ func TestAccEnumBundle(t *testing.T) {
 	nameUpdated := fmt.Sprintf("TF Acc Enum Bundle Updated %d", suffix)
 	value1 := fmt.Sprintf("Enum A %d", suffix)
 	value2 := fmt.Sprintf("Enum B %d", suffix)
-	value1Updated := fmt.Sprintf("Enum A Updated %d", suffix)
-	value2Updated := fmt.Sprintf("Enum B Updated %d", suffix)
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testProviderFactories(),
@@ -47,7 +45,7 @@ func TestAccEnumBundle(t *testing.T) {
 				),
 			},
 			{
-				Config: testAccEnumBundleConfig(nameUpdated, value1Updated, value2Updated),
+				Config: testAccEnumBundleConfig(nameUpdated, value1, value2),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr(accEnumBundleResource, "name", nameUpdated),
 					resource.TestCheckResourceAttr(accEnumBundleResource, "values.#", "2"),

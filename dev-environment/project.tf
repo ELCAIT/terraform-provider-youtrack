@@ -24,22 +24,20 @@ resource "youtrack_enum_bundle" "severity_tpl_values" {
 }
 
 resource "youtrack_project_custom_field" "severity" {
-  project_id  = youtrack_project.test.id
-  field_name  = youtrack_custom_field.severity.name
-  field_type  = "EnumProjectCustomField"
-  bundle_name = youtrack_enum_bundle.severity_tpl_values.name
+  project_id          = youtrack_project.test.id
+  field_name          = youtrack_custom_field.severity.name
+  bundle_name         = youtrack_enum_bundle.severity_tpl_values.name
+  default_value_names = ["Medium"]
 }
 
 resource "youtrack_project_custom_field" "spent_time" {
   project_id = youtrack_project.test.id
   field_name = "Spent time"
-  field_type = "PeriodProjectCustomField"
 }
 
 resource "youtrack_project_custom_field" "estimation" {
   project_id = youtrack_project.test.id
   field_name = "Estimation"
-  field_type = "PeriodProjectCustomField"
 }
 
 resource "youtrack_project_time_tracking_settings" "example" {
