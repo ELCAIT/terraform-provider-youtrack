@@ -225,37 +225,58 @@ func (m *enumBundleResourceModel) fromAPIModel(apiModel *youtrack.EnumBundle) {
 }
 
 func removedEnumBundleValues(stateValues, planValues []enumBundleValueModel) []string {
-	plannedByID := make(map[string]struct{}, len(planValues))
-	plannedByName := make(map[string]struct{}, len(planValues))
-
-	for _, value := range planValues {
-		if !value.ID.IsNull() && !value.ID.IsUnknown() {
-			plannedByID[value.ID.ValueString()] = struct{}{}
-		}
-		if !value.Name.IsNull() && !value.Name.IsUnknown() {
-			plannedByName[value.Name.ValueString()] = struct{}{}
-		}
-	}
+	plannedByID := buildIDMap(planValues)
+	plannedByName := buildNameMap(planValues)
 
 	removed := make([]string, 0)
 	for _, value := range stateValues {
-		if !value.ID.IsNull() && !value.ID.IsUnknown() {
-			if _, exists := plannedByID[value.ID.ValueString()]; exists {
-				continue
-			}
+		if !isValuePlanned(value, plannedByID, plannedByName) {
+			removed = append(removed, getValueLabel(value))
 		}
-
-		if !value.Name.IsNull() && !value.Name.IsUnknown() {
-			if _, exists := plannedByName[value.Name.ValueString()]; exists {
-				continue
-			}
-			removed = append(removed, value.Name.ValueString())
-			continue
-		}
-
-		removed = append(removed, "<unknown>")
 	}
 
 	sort.Strings(removed)
 	return removed
+}
+
+func buildIDMap(values []enumBundleValueModel) map[string]struct{} {
+	result := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if !value.ID.IsNull() && !value.ID.IsUnknown() {
+			result[value.ID.ValueString()] = struct{}{}
+		}
+	}
+	return result
+}
+
+func buildNameMap(values []enumBundleValueModel) map[string]struct{} {
+	result := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if !value.Name.IsNull() && !value.Name.IsUnknown() {
+			result[value.Name.ValueString()] = struct{}{}
+		}
+	}
+	return result
+}
+
+func isValuePlanned(value enumBundleValueModel, plannedByID, plannedByName map[string]struct{}) bool {
+	if !value.ID.IsNull() && !value.ID.IsUnknown() {
+		if _, exists := plannedByID[value.ID.ValueString()]; exists {
+			return true
+		}
+	}
+
+	if !value.Name.IsNull() && !value.Name.IsUnknown() {
+		_, exists := plannedByName[value.Name.ValueString()]
+		return exists
+	}
+
+	return false
+}
+
+func getValueLabel(value enumBundleValueModel) string {
+	if !value.Name.IsNull() && !value.Name.IsUnknown() {
+		return value.Name.ValueString()
+	}
+	return "<unknown>"
 }

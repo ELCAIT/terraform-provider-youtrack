@@ -420,8 +420,29 @@ func (r *projectCustomFieldResource) lookupDefaultValues(
 		return nil, fmt.Errorf("failed to decode default_value_names")
 	}
 
-	trimmed := make([]string, 0, len(names))
+	trimmed := deduplicateNames(names)
+	if len(trimmed) == 0 {
+		return nil, nil
+	}
+
+	bundleID, err := resolveBundleID(bundle, field)
+	if err != nil {
+		return nil, err
+	}
+
+	switch m.FieldType.ValueString() {
+	case "EnumProjectCustomField":
+		return r.resolveEnumDefaultValues(ctx, bundleID, trimmed)
+	case "StateProjectCustomField":
+		return r.resolveStateDefaultValues(ctx, bundleID, trimmed)
+	default:
+		return nil, fmt.Errorf(errDefaultValuesTypeNotSupported, m.FieldType.ValueString())
+	}
+}
+
+func deduplicateNames(names []string) []string {
 	seen := make(map[string]struct{}, len(names))
+	result := make([]string, 0, len(names))
 	for _, name := range names {
 		normalized := strings.TrimSpace(name)
 		if normalized == "" {
@@ -431,68 +452,66 @@ func (r *projectCustomFieldResource) lookupDefaultValues(
 			continue
 		}
 		seen[normalized] = struct{}{}
-		trimmed = append(trimmed, normalized)
+		result = append(result, normalized)
 	}
+	return result
+}
 
-	if len(trimmed) == 0 {
-		return nil, nil
-	}
-
-	bundleID := ""
+func resolveBundleID(bundle *youtrack.BundleRef, field *youtrack.CustomField) (string, error) {
 	if bundle != nil {
-		bundleID = strings.TrimSpace(bundle.ID)
+		if id := strings.TrimSpace(bundle.ID); id != "" {
+			return id, nil
+		}
 	}
-	if bundleID == "" && field != nil && field.FieldDefaults != nil && field.FieldDefaults.Bundle != nil {
-		bundleID = strings.TrimSpace(field.FieldDefaults.Bundle.ID)
+	if field != nil && field.FieldDefaults != nil && field.FieldDefaults.Bundle != nil {
+		if id := strings.TrimSpace(field.FieldDefaults.Bundle.ID); id != "" {
+			return id, nil
+		}
 	}
-	if bundleID == "" {
-		return nil, fmt.Errorf("cannot resolve default_value_names because no bundle is configured; set bundle_name or configure a default bundle on the global custom field")
-	}
+	return "", fmt.Errorf("cannot resolve default_value_names because no bundle is configured; set bundle_name or configure a default bundle on the global custom field")
+}
 
-	fieldType := m.FieldType.ValueString()
-	refs := make([]youtrack.ProjectCustomFieldValueRef, 0, len(trimmed))
-
-	switch fieldType {
-	case "EnumProjectCustomField":
-		enumBundle, err := r.client.GetEnumBundleByID(ctx, bundleID)
-		if err != nil {
-			return nil, fmt.Errorf("could not load enum bundle %q for default_value_names: %w", bundleID, err)
-		}
-
-		byName := make(map[string]youtrack.EnumBundleElement, len(enumBundle.Values))
-		for _, v := range enumBundle.Values {
-			byName[v.Name] = v
-		}
-
-		for _, name := range trimmed {
-			v, exists := byName[name]
-			if !exists {
-				return nil, fmt.Errorf("default value %q not found in enum bundle %q", name, enumBundle.Name)
-			}
-			refs = append(refs, youtrack.ProjectCustomFieldValueRef{ID: v.ID, Name: v.Name, Type: v.Type})
-		}
-	case "StateProjectCustomField":
-		stateBundle, err := r.client.GetStateBundleByID(ctx, bundleID)
-		if err != nil {
-			return nil, fmt.Errorf("could not load state bundle %q for default_value_names: %w", bundleID, err)
-		}
-
-		byName := make(map[string]youtrack.StateBundleElement, len(stateBundle.Values))
-		for _, v := range stateBundle.Values {
-			byName[v.Name] = v
-		}
-
-		for _, name := range trimmed {
-			v, exists := byName[name]
-			if !exists {
-				return nil, fmt.Errorf("default value %q not found in state bundle %q", name, stateBundle.Name)
-			}
-			refs = append(refs, youtrack.ProjectCustomFieldValueRef{ID: v.ID, Name: v.Name, Type: v.Type})
-		}
-	default:
-		return nil, fmt.Errorf(errDefaultValuesTypeNotSupported, fieldType)
+func (r *projectCustomFieldResource) resolveEnumDefaultValues(ctx context.Context, bundleID string, names []string) ([]youtrack.ProjectCustomFieldValueRef, error) {
+	enumBundle, err := r.client.GetEnumBundleByID(ctx, bundleID)
+	if err != nil {
+		return nil, fmt.Errorf("could not load enum bundle %q for default_value_names: %w", bundleID, err)
 	}
 
+	byName := make(map[string]youtrack.EnumBundleElement, len(enumBundle.Values))
+	for _, v := range enumBundle.Values {
+		byName[v.Name] = v
+	}
+
+	refs := make([]youtrack.ProjectCustomFieldValueRef, 0, len(names))
+	for _, name := range names {
+		v, exists := byName[name]
+		if !exists {
+			return nil, fmt.Errorf("default value %q not found in enum bundle %q", name, enumBundle.Name)
+		}
+		refs = append(refs, youtrack.ProjectCustomFieldValueRef{ID: v.ID, Name: v.Name, Type: v.Type})
+	}
+	return refs, nil
+}
+
+func (r *projectCustomFieldResource) resolveStateDefaultValues(ctx context.Context, bundleID string, names []string) ([]youtrack.ProjectCustomFieldValueRef, error) {
+	stateBundle, err := r.client.GetStateBundleByID(ctx, bundleID)
+	if err != nil {
+		return nil, fmt.Errorf("could not load state bundle %q for default_value_names: %w", bundleID, err)
+	}
+
+	byName := make(map[string]youtrack.StateBundleElement, len(stateBundle.Values))
+	for _, v := range stateBundle.Values {
+		byName[v.Name] = v
+	}
+
+	refs := make([]youtrack.ProjectCustomFieldValueRef, 0, len(names))
+	for _, name := range names {
+		v, exists := byName[name]
+		if !exists {
+			return nil, fmt.Errorf("default value %q not found in state bundle %q", name, stateBundle.Name)
+		}
+		refs = append(refs, youtrack.ProjectCustomFieldValueRef{ID: v.ID, Name: v.Name, Type: v.Type})
+	}
 	return refs, nil
 }
 
