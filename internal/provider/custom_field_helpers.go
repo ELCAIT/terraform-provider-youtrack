@@ -241,23 +241,13 @@ func (r *customFieldResource) resolveCustomFieldDefaultValues(
 		return nil
 	}
 
-	defaultsModel := customFieldDefaultsModel{}
-	if !plan.FieldDefaults.IsNull() && !plan.FieldDefaults.IsUnknown() {
-		if diags := plan.FieldDefaults.As(context.Background(), &defaultsModel, basetypes.ObjectAsOptions{}); diags.HasError() {
-			return fmt.Errorf("failed to decode field_defaults")
-		}
+	defaultsModel, err := decodeCustomFieldDefaultsModel(ctx, plan)
+	if err != nil {
+		return err
 	}
 
-	if (apiModel.FieldDefaults.Bundle == nil || strings.TrimSpace(apiModel.FieldDefaults.Bundle.ID) == "") &&
-		!defaultsModel.BundleName.IsNull() && !defaultsModel.BundleName.IsUnknown() {
-		bundleName := strings.TrimSpace(defaultsModel.BundleName.ValueString())
-		if bundleName != "" {
-			bundle, err := r.lookupCustomFieldBundleByName(ctx, plan.FieldTypeID.ValueString(), bundleName)
-			if err != nil {
-				return err
-			}
-			apiModel.FieldDefaults.Bundle = bundle
-		}
+	if err := r.ensureDefaultValuesBundle(ctx, apiModel, plan.FieldTypeID.ValueString(), defaultsModel); err != nil {
+		return err
 	}
 
 	if len(apiModel.FieldDefaults.DefaultValues) == 0 {
@@ -268,9 +258,66 @@ func (r *customFieldResource) resolveCustomFieldDefaultValues(
 		return fmt.Errorf("default_value_names requires field_defaults.bundle_id or field_defaults.bundle_name to be set")
 	}
 
-	bundleID := strings.TrimSpace(apiModel.FieldDefaults.Bundle.ID)
-	names := make([]string, 0, len(apiModel.FieldDefaults.DefaultValues))
-	for _, value := range apiModel.FieldDefaults.DefaultValues {
+	names := defaultValueNames(apiModel.FieldDefaults.DefaultValues)
+
+	if len(names) == 0 {
+		apiModel.FieldDefaults.DefaultValues = nil
+		return nil
+	}
+
+	refs, err := resolveCustomFieldDefaultValuesByType(ctx, r.client, plan.FieldTypeID.ValueString(), apiModel.FieldDefaults.Bundle.ID, names)
+	if err != nil {
+		return err
+	}
+
+	apiModel.FieldDefaults.DefaultValues = refs
+	return nil
+}
+
+func decodeCustomFieldDefaultsModel(ctx context.Context, plan customFieldResourceModel) (customFieldDefaultsModel, error) {
+	defaultsModel := customFieldDefaultsModel{}
+	if plan.FieldDefaults.IsNull() || plan.FieldDefaults.IsUnknown() {
+		return defaultsModel, nil
+	}
+
+	if diags := plan.FieldDefaults.As(ctx, &defaultsModel, basetypes.ObjectAsOptions{}); diags.HasError() {
+		return customFieldDefaultsModel{}, fmt.Errorf("failed to decode field_defaults")
+	}
+
+	return defaultsModel, nil
+}
+
+func (r *customFieldResource) ensureDefaultValuesBundle(
+	ctx context.Context,
+	apiModel *youtrack.CustomFieldUpsertRequest,
+	fieldTypeID string,
+	defaultsModel customFieldDefaultsModel,
+) error {
+	if apiModel.FieldDefaults.Bundle != nil && strings.TrimSpace(apiModel.FieldDefaults.Bundle.ID) != "" {
+		return nil
+	}
+
+	if defaultsModel.BundleName.IsNull() || defaultsModel.BundleName.IsUnknown() {
+		return nil
+	}
+
+	bundleName := strings.TrimSpace(defaultsModel.BundleName.ValueString())
+	if bundleName == "" {
+		return nil
+	}
+
+	bundle, err := r.lookupCustomFieldBundleByName(ctx, fieldTypeID, bundleName)
+	if err != nil {
+		return err
+	}
+
+	apiModel.FieldDefaults.Bundle = bundle
+	return nil
+}
+
+func defaultValueNames(values []youtrack.ProjectCustomFieldValueRef) []string {
+	names := make([]string, 0, len(values))
+	for _, value := range values {
 		name := strings.TrimSpace(value.Name)
 		if name == "" {
 			continue
@@ -278,28 +325,23 @@ func (r *customFieldResource) resolveCustomFieldDefaultValues(
 		names = append(names, name)
 	}
 
-	if len(names) == 0 {
-		apiModel.FieldDefaults.DefaultValues = nil
-		return nil
-	}
+	return names
+}
 
-	switch extractFieldTypePrefix(plan.FieldTypeID.ValueString()) {
+func resolveCustomFieldDefaultValuesByType(
+	ctx context.Context,
+	client *youtrack.Client,
+	fieldTypeID string,
+	bundleID string,
+	names []string,
+) ([]youtrack.ProjectCustomFieldValueRef, error) {
+	switch extractFieldTypePrefix(fieldTypeID) {
 	case fieldTypePrefixEnum:
-		refs, err := resolveEnumCustomFieldDefaultValues(ctx, r.client, bundleID, names)
-		if err != nil {
-			return err
-		}
-		apiModel.FieldDefaults.DefaultValues = refs
-		return nil
+		return resolveEnumCustomFieldDefaultValues(ctx, client, bundleID, names)
 	case fieldTypePrefixState:
-		refs, err := resolveStateCustomFieldDefaultValues(ctx, r.client, bundleID, names)
-		if err != nil {
-			return err
-		}
-		apiModel.FieldDefaults.DefaultValues = refs
-		return nil
+		return resolveStateCustomFieldDefaultValues(ctx, client, bundleID, names)
 	default:
-		return errors.New(errDefaultValuesTypeUnsupported)
+		return nil, errors.New(errDefaultValuesTypeUnsupported)
 	}
 }
 
