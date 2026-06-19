@@ -1,7 +1,6 @@
 package provider
 
 import (
-	"reflect"
 	"testing"
 
 	helpers "github.com/elcait/terraform-provider-youtrack/internal/helpers"
@@ -49,41 +48,4 @@ func TestEnumBundleModelFromAPIModel(t *testing.T) {
 	helpers.AssertFieldEqual(t, "IsUpdateable", model.IsUpdateable.ValueBool(), true)
 	helpers.AssertFieldEqual(t, "ValuesLength", len(model.Values), 2)
 	helpers.AssertFieldEqual(t, "SecondValueOrdinal", model.Values[1].Ordinal.ValueInt64(), int64(1))
-}
-
-func TestRemovedEnumBundleValues_NoRemovedValues(t *testing.T) {
-	t.Parallel()
-
-	stateValues := []enumBundleValueModel{
-		{ID: types.StringValue("67-1"), Name: types.StringValue("Major")},
-		{ID: types.StringValue("67-2"), Name: types.StringValue("Minor")},
-	}
-	planValues := []enumBundleValueModel{
-		{ID: types.StringValue("67-1"), Name: types.StringValue("Major")},
-		{ID: types.StringValue("67-2"), Name: types.StringValue("Minor")},
-	}
-
-	got := removedEnumBundleValues(stateValues, planValues)
-	if len(got) != 0 {
-		t.Fatalf("removedEnumBundleValues() = %v, want empty", got)
-	}
-}
-
-func TestRemovedEnumBundleValues_DetectsRemovedValues(t *testing.T) {
-	t.Parallel()
-
-	stateValues := []enumBundleValueModel{
-		{ID: types.StringValue("67-1"), Name: types.StringValue("Critical")},
-		{ID: types.StringValue("67-2"), Name: types.StringValue("Major")},
-		{ID: types.StringValue("67-3"), Name: types.StringValue("Minor")},
-	}
-	planValues := []enumBundleValueModel{
-		{ID: types.StringValue("67-2"), Name: types.StringValue("Major")},
-	}
-
-	got := removedEnumBundleValues(stateValues, planValues)
-	want := []string{"Critical", "Minor"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("removedEnumBundleValues() = %v, want %v", got, want)
-	}
 }

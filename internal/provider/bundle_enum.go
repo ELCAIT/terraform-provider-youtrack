@@ -3,8 +3,6 @@ package provider
 import (
 	"context"
 	"fmt"
-	"sort"
-	"strings"
 
 	helpers "github.com/elcait/terraform-provider-youtrack/internal/helpers"
 
@@ -29,7 +27,6 @@ const (
 	errDeletingEnumBundle  = "Error deleting enum bundle"
 	errMissingEnumBundleID = "Missing enum bundle ID"
 	errEnumBundleIDReq     = "Enum bundle ID is required"
-	errRemovingEnumValues  = "Removing enum values is not supported"
 )
 
 func NewEnumBundleResource() resource.Resource {
@@ -133,26 +130,7 @@ func (r *enumBundleResource) Update(ctx context.Context, req resource.UpdateRequ
 		return
 	}
 
-	var state enumBundleResourceModel
-	diags := req.State.Get(ctx, &state)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
 	if !helpers.ValidateResourceID(plan.ID, &resp.Diagnostics, errMissingEnumBundleID, errEnumBundleIDReq) {
-		return
-	}
-
-	removedValues := removedEnumBundleValues(state.Values, plan.Values)
-	if len(removedValues) > 0 {
-		resp.Diagnostics.AddError(
-			errRemovingEnumValues,
-			fmt.Sprintf(
-				"YouTrack keeps existing enum values when they are omitted from bundle updates. Removed values: %s. Mark values with archived = true instead of deleting them from configuration.",
-				strings.Join(removedValues, ", "),
-			),
-		)
 		return
 	}
 
@@ -222,61 +200,4 @@ func (m *enumBundleResourceModel) fromAPIModel(apiModel *youtrack.EnumBundle) {
 		})
 	}
 	m.Values = values
-}
-
-func removedEnumBundleValues(stateValues, planValues []enumBundleValueModel) []string {
-	plannedByID := buildIDMap(planValues)
-	plannedByName := buildNameMap(planValues)
-
-	removed := make([]string, 0)
-	for _, value := range stateValues {
-		if !isValuePlanned(value, plannedByID, plannedByName) {
-			removed = append(removed, getValueLabel(value))
-		}
-	}
-
-	sort.Strings(removed)
-	return removed
-}
-
-func buildIDMap(values []enumBundleValueModel) map[string]struct{} {
-	result := make(map[string]struct{}, len(values))
-	for _, value := range values {
-		if !value.ID.IsNull() && !value.ID.IsUnknown() {
-			result[value.ID.ValueString()] = struct{}{}
-		}
-	}
-	return result
-}
-
-func buildNameMap(values []enumBundleValueModel) map[string]struct{} {
-	result := make(map[string]struct{}, len(values))
-	for _, value := range values {
-		if !value.Name.IsNull() && !value.Name.IsUnknown() {
-			result[value.Name.ValueString()] = struct{}{}
-		}
-	}
-	return result
-}
-
-func isValuePlanned(value enumBundleValueModel, plannedByID, plannedByName map[string]struct{}) bool {
-	if !value.ID.IsNull() && !value.ID.IsUnknown() {
-		if _, exists := plannedByID[value.ID.ValueString()]; exists {
-			return true
-		}
-	}
-
-	if !value.Name.IsNull() && !value.Name.IsUnknown() {
-		_, exists := plannedByName[value.Name.ValueString()]
-		return exists
-	}
-
-	return false
-}
-
-func getValueLabel(value enumBundleValueModel) string {
-	if !value.Name.IsNull() && !value.Name.IsUnknown() {
-		return value.Name.ValueString()
-	}
-	return "<unknown>"
 }
