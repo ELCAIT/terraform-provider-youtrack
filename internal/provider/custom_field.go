@@ -24,16 +24,18 @@ var (
 )
 
 const (
-	errCreatingCustomField  = "Error creating custom field"
-	errReadingCustomField   = "Error reading custom field"
-	errUpdatingCustomField  = "Error updating custom field"
-	errDeletingCustomField  = "Error deleting custom field"
-	errCustomFieldType      = "Custom field type is immutable"
-	errMissingCustomFieldID = "Missing custom field ID"
-	errCustomFieldIDReq     = "Custom field ID is required"
-	errBundleFallbackCreate = "failed fallback create without bundle defaults"
-	errBundleFallbackUpdate = "failed fallback update with bundle defaults"
-	errBundleFallbackDelete = "failed cleanup delete after fallback update error"
+	errCreatingCustomField          = "Error creating custom field"
+	errReadingCustomField           = "Error reading custom field"
+	errUpdatingCustomField          = "Error updating custom field"
+	errDeletingCustomField          = "Error deleting custom field"
+	errCustomFieldType              = "Custom field type is immutable"
+	errMissingCustomFieldID         = "Missing custom field ID"
+	errCustomFieldIDReq             = "Custom field ID is required"
+	errBundleFallbackCreate         = "failed fallback create without bundle defaults"
+	errBundleFallbackUpdate         = "failed fallback update with bundle defaults"
+	errBundleFallbackDelete         = "failed cleanup delete after fallback update error"
+	errDefaultValuesTypeUnsupported = "default_value_names is only supported for enum[1] and state[1] custom fields"
+	errBundleNameTypeUnsupported    = "field_defaults.bundle_name is only supported for enum[1] and state[1] custom fields"
 
 	fieldTypePrefixEnum       = "enum"
 	fieldTypePrefixState      = "state"
@@ -63,11 +65,12 @@ type customFieldResource struct {
 }
 
 type customFieldDefaultsModel struct {
-	CanBeEmpty     types.Bool   `tfsdk:"can_be_empty"`
-	EmptyFieldText types.String `tfsdk:"empty_field_text"`
-	IsPublic       types.Bool   `tfsdk:"is_public"`
-	BundleID       types.String `tfsdk:"bundle_id"`
-	BundleName     types.String `tfsdk:"bundle_name"`
+	CanBeEmpty        types.Bool   `tfsdk:"can_be_empty"`
+	EmptyFieldText    types.String `tfsdk:"empty_field_text"`
+	IsPublic          types.Bool   `tfsdk:"is_public"`
+	BundleID          types.String `tfsdk:"bundle_id"`
+	BundleName        types.String `tfsdk:"bundle_name"`
+	DefaultValueNames types.List   `tfsdk:"default_value_names"`
 }
 
 type customFieldResourceModel struct {
@@ -170,8 +173,15 @@ func (r *customFieldResource) Schema(_ context.Context, _ resource.SchemaRequest
 						Description: "Referenced default bundle ID for bundle-based field types.",
 					},
 					"bundle_name": schema.StringAttribute{
+						Optional:    true,
 						Computed:    true,
-						Description: "Referenced default bundle name.",
+						Description: "Referenced default bundle name. Supported as input for enum[1] and state[1] bundle-based fields.",
+					},
+					"default_value_names": schema.ListAttribute{
+						Optional:    true,
+						Computed:    true,
+						ElementType: types.StringType,
+						Description: "Default values for bundle-based enum/state fields, resolved by value name from the referenced bundle.",
 					},
 				},
 			},
@@ -192,6 +202,10 @@ func (r *customFieldResource) Create(ctx context.Context, req resource.CreateReq
 	}
 
 	apiModel := plan.toAPIModel()
+	if err := r.resolveCustomFieldDefaultValues(ctx, &apiModel, plan); err != nil {
+		resp.Diagnostics.AddError(errCreatingCustomField, fmt.Sprintf("Could not resolve custom field default values: %v", err))
+		return
+	}
 	created, err := r.client.CreateCustomField(ctx, apiModel)
 	if err != nil && customFieldRequestHasBundle(apiModel) {
 		created, err = r.createWithBundleFallback(ctx, apiModel)
@@ -261,7 +275,13 @@ func (r *customFieldResource) Update(ctx context.Context, req resource.UpdateReq
 		return
 	}
 
-	updated, err := r.client.UpdateCustomField(ctx, plan.ID.ValueString(), plan.toAPIModel())
+	apiModel := plan.toAPIModel()
+	if err := r.resolveCustomFieldDefaultValues(ctx, &apiModel, plan); err != nil {
+		resp.Diagnostics.AddError(errUpdatingCustomField, fmt.Sprintf("Could not resolve custom field default values: %v", err))
+		return
+	}
+
+	updated, err := r.client.UpdateCustomField(ctx, plan.ID.ValueString(), apiModel)
 	if err != nil {
 		resp.Diagnostics.AddError(errUpdatingCustomField, fmt.Sprintf(helpers.ErrCouldNotUpdateFmt, "custom field", err))
 		return

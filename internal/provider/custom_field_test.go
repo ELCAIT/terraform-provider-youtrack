@@ -2,6 +2,8 @@ package provider
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	helpers "github.com/elcait/terraform-provider-youtrack/internal/helpers"
@@ -40,6 +42,10 @@ func TestCustomFieldModelToAPIModel(t *testing.T) {
 			"is_public":        types.BoolValue(false),
 			"bundle_id":        types.StringValue(testBundleID),
 			"bundle_name":      types.StringNull(),
+			"default_value_names": types.ListValueMust(types.StringType, []attr.Value{
+				types.StringValue("Critical"),
+				types.StringValue("Major"),
+			}),
 		}),
 	}
 
@@ -54,6 +60,8 @@ func TestCustomFieldModelToAPIModel(t *testing.T) {
 	helpers.AssertFieldEqual(t, "FieldDefaults.Bundle.ID", apiModel.FieldDefaults.Bundle.ID, testBundleID)
 	helpers.AssertFieldEqual(t, "FieldDefaults.Bundle.Type", apiModel.FieldDefaults.Bundle.Type, bundleTypeEnum)
 	helpers.AssertFieldEqual(t, "FieldDefaults.Type", apiModel.FieldDefaults.Type, defaultsTypeEnum)
+	helpers.AssertFieldEqual(t, "FieldDefaults.DefaultValues length", len(apiModel.FieldDefaults.DefaultValues), 2)
+	helpers.AssertFieldEqual(t, "FieldDefaults.DefaultValues[0].Name", apiModel.FieldDefaults.DefaultValues[0].Name, "Critical")
 }
 
 func TestCustomFieldModelFromAPIModel(t *testing.T) {
@@ -75,6 +83,7 @@ func TestCustomFieldModelFromAPIModel(t *testing.T) {
 			EmptyFieldText: "Not set",
 			IsPublic:       false,
 			Bundle:         &youtrack.BundleRef{ID: testBundleID, Name: testBundleName},
+			DefaultValues:  []youtrack.ProjectCustomFieldValueRef{{ID: "66-11", Name: "Critical"}, {ID: "66-12", Name: "Major"}},
 		},
 	}
 
@@ -93,6 +102,10 @@ func TestCustomFieldModelFromAPIModel(t *testing.T) {
 	helpers.AssertFieldEqual(t, "EmptyFieldText", defaults.EmptyFieldText.ValueString(), "Not set")
 	helpers.AssertFieldEqual(t, "BundleID", defaults.BundleID.ValueString(), testBundleID)
 	helpers.AssertFieldEqual(t, "BundleName", defaults.BundleName.ValueString(), testBundleName)
+	defaultValueNames, ok := helpers.ListToStringSlice(context.Background(), defaults.DefaultValueNames)
+	helpers.AssertFieldEqual(t, "DefaultValueNames decode", ok, true)
+	helpers.AssertFieldEqual(t, "DefaultValueNames length", len(defaultValueNames), 2)
+	helpers.AssertFieldEqual(t, "DefaultValueNames[0]", defaultValueNames[0], "Critical")
 }
 
 func TestCustomFieldModelFromAPIModelEmptyFieldTextPreserved(t *testing.T) {
@@ -115,6 +128,60 @@ func TestCustomFieldModelFromAPIModelEmptyFieldTextPreserved(t *testing.T) {
 
 	helpers.AssertFieldEqual(t, "EmptyFieldText.IsNull", defaults.EmptyFieldText.IsNull(), false)
 	helpers.AssertFieldEqual(t, "EmptyFieldText", defaults.EmptyFieldText.ValueString(), "")
+	helpers.AssertFieldEqual(t, "DefaultValueNames.IsNull", defaults.DefaultValueNames.IsNull(), true)
+}
+
+func TestResolveCustomFieldDefaultValuesWithBundleName(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		switch req.URL.Path {
+		case "/api/admin/customFieldSettings/bundles/enum":
+			_, _ = w.Write([]byte(`[{"id":"66-1","name":"Priorities"}]`))
+		case "/api/admin/customFieldSettings/bundles/enum/66-1":
+			_, _ = w.Write([]byte(`{"id":"66-1","name":"Priorities","values":[{"id":"66-11","name":"Critical"},{"id":"66-12","name":"Major"}]}`))
+		default:
+			http.NotFound(w, req)
+		}
+	}))
+	defer server.Close()
+
+	client, err := youtrack.NewClient(server.URL, "token")
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	resource := &customFieldResource{client: client}
+	plan := customFieldResourceModel{
+		FieldTypeID: types.StringValue(testFieldTypeID),
+		FieldDefaults: types.ObjectValueMust(customFieldDefaultsAttrTypes(), map[string]attr.Value{
+			"can_be_empty":     types.BoolValue(true),
+			"empty_field_text": types.StringValue("Not set"),
+			"is_public":        types.BoolValue(false),
+			"bundle_id":        types.StringNull(),
+			"bundle_name":      types.StringValue(testBundleName),
+			"default_value_names": types.ListValueMust(types.StringType, []attr.Value{
+				types.StringValue("Major"),
+			}),
+		}),
+	}
+
+	apiModel := plan.toAPIModel()
+	if err := resource.resolveCustomFieldDefaultValues(context.Background(), &apiModel, plan); err != nil {
+		t.Fatalf("resolveCustomFieldDefaultValues returned error: %v", err)
+	}
+
+	if apiModel.FieldDefaults == nil || apiModel.FieldDefaults.Bundle == nil {
+		t.Fatal("expected resolved bundle on field defaults")
+	}
+
+	helpers.AssertFieldEqual(t, "Bundle.ID", apiModel.FieldDefaults.Bundle.ID, testBundleID)
+	helpers.AssertFieldEqual(t, "Bundle.Type", apiModel.FieldDefaults.Bundle.Type, bundleTypeEnum)
+	helpers.AssertFieldEqual(t, "DefaultValues length", len(apiModel.FieldDefaults.DefaultValues), 1)
+	helpers.AssertFieldEqual(t, "DefaultValues[0].ID", apiModel.FieldDefaults.DefaultValues[0].ID, "66-12")
+	helpers.AssertFieldEqual(t, "DefaultValues[0].Name", apiModel.FieldDefaults.DefaultValues[0].Name, "Major")
 }
 
 func TestBundleTypeForFieldTypeID(t *testing.T) {

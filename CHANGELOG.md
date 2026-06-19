@@ -1,3 +1,13 @@
+## 1.0.4
+FEATURES:
+
+IMPROVEMENTS:
+- Add default values for project customfield bundles
+- Add default values for bundle customfields
+- Update dependencies.
+
+BUG FIXES:
+
 ## 1.0.3
 FEATURES:
 
