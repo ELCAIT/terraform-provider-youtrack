@@ -4,9 +4,13 @@
 package provider
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"testing"
 	"time"
+
+	youtrack "github.com/elcait/youtrack-api-client/client"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
@@ -33,6 +37,19 @@ resource "youtrack_project_time_tracking_settings" "test" {
 
 func TestAccProjectTimeTrackingSettings(t *testing.T) {
 	skipUnlessAcc(t)
+
+	client, err := youtrack.NewClient(os.Getenv(envAccURL), os.Getenv(envAccToken))
+	if err != nil {
+		t.Fatalf("failed to create YouTrack client: %v", err)
+	}
+
+	originalTypes, err := client.ListWorkItemTypes(context.Background())
+	if err != nil {
+		t.Fatalf("failed to read original work item types: %v", err)
+	}
+
+	registerProjectTimeTrackingWorkItemTypesCleanup(t, client, originalTypes)
+	deleteProjectTimeTrackingWorkItemTypesBefore(t, client, originalTypes)
 
 	leaderLogin := testProjectLeaderLogin(t)
 	suffix := time.Now().UnixMilli()
@@ -70,4 +87,36 @@ func TestAccProjectTimeTrackingSettings(t *testing.T) {
 			},
 		},
 	})
+}
+
+func registerProjectTimeTrackingWorkItemTypesCleanup(t *testing.T, client *youtrack.Client, originalTypes []youtrack.WorkItemType) {
+	t.Helper()
+	t.Cleanup(func() {
+		currentTypes, listErr := client.ListWorkItemTypes(context.Background())
+		if listErr != nil {
+			t.Errorf("failed to list work item types during cleanup: %v", listErr)
+			return
+		}
+
+		for _, currentType := range currentTypes {
+			if err := client.DeleteWorkItemType(context.Background(), currentType.ID); err != nil {
+				t.Errorf("failed to delete work item type %q during cleanup: %v", currentType.Name, err)
+			}
+		}
+
+		for _, originalType := range originalTypes {
+			if _, err := client.CreateWorkItemType(context.Background(), originalType); err != nil {
+				t.Errorf("failed to restore work item type %q during cleanup: %v", originalType.Name, err)
+			}
+		}
+	})
+}
+
+func deleteProjectTimeTrackingWorkItemTypesBefore(t *testing.T, client *youtrack.Client, types []youtrack.WorkItemType) {
+	t.Helper()
+	for _, workItemType := range types {
+		if err := client.DeleteWorkItemType(context.Background(), workItemType.ID); err != nil {
+			t.Fatalf("failed to delete pre-existing work item type %q before test: %v", workItemType.Name, err)
+		}
+	}
 }

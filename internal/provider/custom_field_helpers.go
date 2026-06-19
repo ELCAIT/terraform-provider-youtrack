@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -84,7 +85,38 @@ func (m *customFieldResourceModel) toAPIDefaults() (*youtrack.CustomFieldDefault
 		hasValue = true
 	}
 
+	if defaultValues, ok := m.defaultValueRefsForDefaults(defaultsModel); ok {
+		defaults.DefaultValues = defaultValues
+		hasValue = true
+	}
+
 	return defaults, hasValue
+}
+
+func (m *customFieldResourceModel) defaultValueRefsForDefaults(defaultsModel customFieldDefaultsModel) ([]youtrack.ProjectCustomFieldValueRef, bool) {
+	if defaultsModel.DefaultValueNames.IsNull() || defaultsModel.DefaultValueNames.IsUnknown() {
+		return nil, false
+	}
+
+	names, ok := helpers.ListToStringSlice(context.Background(), defaultsModel.DefaultValueNames)
+	if !ok {
+		return nil, false
+	}
+
+	refs := make([]youtrack.ProjectCustomFieldValueRef, 0, len(names))
+	for _, name := range names {
+		normalized := strings.TrimSpace(name)
+		if normalized == "" {
+			continue
+		}
+		refs = append(refs, youtrack.ProjectCustomFieldValueRef{Name: normalized})
+	}
+
+	if len(refs) == 0 {
+		return nil, false
+	}
+
+	return refs, true
 }
 
 func (m *customFieldResourceModel) fromAPIModel(apiModel *youtrack.CustomField) {
@@ -113,22 +145,44 @@ func (m *customFieldResourceModel) fromAPIModel(apiModel *youtrack.CustomField) 
 	}
 
 	m.FieldDefaults = types.ObjectValueMust(customFieldDefaultsAttrTypes(), map[string]attr.Value{
-		"can_be_empty":     types.BoolValue(apiModel.FieldDefaults.CanBeEmpty),
-		"empty_field_text": helpers.StringOrEmpty(apiModel.FieldDefaults.EmptyFieldText),
-		"is_public":        types.BoolValue(apiModel.FieldDefaults.IsPublic),
-		"bundle_id":        bundleID,
-		"bundle_name":      bundleName,
+		"can_be_empty":        types.BoolValue(apiModel.FieldDefaults.CanBeEmpty),
+		"empty_field_text":    helpers.StringOrEmpty(apiModel.FieldDefaults.EmptyFieldText),
+		"is_public":           types.BoolValue(apiModel.FieldDefaults.IsPublic),
+		"bundle_id":           bundleID,
+		"bundle_name":         bundleName,
+		"default_value_names": defaultValueNamesFromCustomFieldDefaults(apiModel.FieldDefaults),
 	})
 }
 
 func customFieldDefaultsAttrTypes() map[string]attr.Type {
 	return map[string]attr.Type{
-		"can_be_empty":     types.BoolType,
-		"empty_field_text": types.StringType,
-		"is_public":        types.BoolType,
-		"bundle_id":        types.StringType,
-		"bundle_name":      types.StringType,
+		"can_be_empty":        types.BoolType,
+		"empty_field_text":    types.StringType,
+		"is_public":           types.BoolType,
+		"bundle_id":           types.StringType,
+		"bundle_name":         types.StringType,
+		"default_value_names": types.ListType{ElemType: types.StringType},
 	}
+}
+
+func defaultValueNamesFromCustomFieldDefaults(defaults *youtrack.CustomFieldDefaults) attr.Value {
+	if defaults == nil || len(defaults.DefaultValues) == 0 {
+		return types.ListNull(types.StringType)
+	}
+
+	names := make([]attr.Value, 0, len(defaults.DefaultValues))
+	for _, value := range defaults.DefaultValues {
+		if strings.TrimSpace(value.Name) == "" {
+			continue
+		}
+		names = append(names, types.StringValue(value.Name))
+	}
+
+	if len(names) == 0 {
+		return types.ListNull(types.StringType)
+	}
+
+	return types.ListValueMust(types.StringType, names)
 }
 
 func bundleTypeForFieldTypeID(fieldTypeID string) (string, bool) {
@@ -178,6 +232,194 @@ func extractFieldTypePrefix(fieldTypeID string) string {
 	return fieldTypePrefix
 }
 
+func (r *customFieldResource) resolveCustomFieldDefaultValues(
+	ctx context.Context,
+	apiModel *youtrack.CustomFieldUpsertRequest,
+	plan customFieldResourceModel,
+) error {
+	if apiModel == nil || apiModel.FieldDefaults == nil {
+		return nil
+	}
+
+	defaultsModel, err := decodeCustomFieldDefaultsModel(ctx, plan)
+	if err != nil {
+		return err
+	}
+
+	if err := r.ensureDefaultValuesBundle(ctx, apiModel, plan.FieldTypeID.ValueString(), defaultsModel); err != nil {
+		return err
+	}
+
+	if len(apiModel.FieldDefaults.DefaultValues) == 0 {
+		return nil
+	}
+
+	if apiModel.FieldDefaults.Bundle == nil || strings.TrimSpace(apiModel.FieldDefaults.Bundle.ID) == "" {
+		return fmt.Errorf("default_value_names requires field_defaults.bundle_id or field_defaults.bundle_name to be set")
+	}
+
+	names := defaultValueNames(apiModel.FieldDefaults.DefaultValues)
+
+	if len(names) == 0 {
+		apiModel.FieldDefaults.DefaultValues = nil
+		return nil
+	}
+
+	refs, err := resolveCustomFieldDefaultValuesByType(ctx, r.client, plan.FieldTypeID.ValueString(), apiModel.FieldDefaults.Bundle.ID, names)
+	if err != nil {
+		return err
+	}
+
+	apiModel.FieldDefaults.DefaultValues = refs
+	return nil
+}
+
+func decodeCustomFieldDefaultsModel(ctx context.Context, plan customFieldResourceModel) (customFieldDefaultsModel, error) {
+	defaultsModel := customFieldDefaultsModel{}
+	if plan.FieldDefaults.IsNull() || plan.FieldDefaults.IsUnknown() {
+		return defaultsModel, nil
+	}
+
+	if diags := plan.FieldDefaults.As(ctx, &defaultsModel, basetypes.ObjectAsOptions{}); diags.HasError() {
+		return customFieldDefaultsModel{}, fmt.Errorf("failed to decode field_defaults")
+	}
+
+	return defaultsModel, nil
+}
+
+func (r *customFieldResource) ensureDefaultValuesBundle(
+	ctx context.Context,
+	apiModel *youtrack.CustomFieldUpsertRequest,
+	fieldTypeID string,
+	defaultsModel customFieldDefaultsModel,
+) error {
+	if apiModel.FieldDefaults.Bundle != nil && strings.TrimSpace(apiModel.FieldDefaults.Bundle.ID) != "" {
+		return nil
+	}
+
+	if defaultsModel.BundleName.IsNull() || defaultsModel.BundleName.IsUnknown() {
+		return nil
+	}
+
+	bundleName := strings.TrimSpace(defaultsModel.BundleName.ValueString())
+	if bundleName == "" {
+		return nil
+	}
+
+	bundle, err := r.lookupCustomFieldBundleByName(ctx, fieldTypeID, bundleName)
+	if err != nil {
+		return err
+	}
+
+	apiModel.FieldDefaults.Bundle = bundle
+	return nil
+}
+
+func defaultValueNames(values []youtrack.ProjectCustomFieldValueRef) []string {
+	names := make([]string, 0, len(values))
+	for _, value := range values {
+		name := strings.TrimSpace(value.Name)
+		if name == "" {
+			continue
+		}
+		names = append(names, name)
+	}
+
+	return names
+}
+
+func resolveCustomFieldDefaultValuesByType(
+	ctx context.Context,
+	client *youtrack.Client,
+	fieldTypeID string,
+	bundleID string,
+	names []string,
+) ([]youtrack.ProjectCustomFieldValueRef, error) {
+	switch extractFieldTypePrefix(fieldTypeID) {
+	case fieldTypePrefixEnum:
+		return resolveEnumCustomFieldDefaultValues(ctx, client, bundleID, names)
+	case fieldTypePrefixState:
+		return resolveStateCustomFieldDefaultValues(ctx, client, bundleID, names)
+	default:
+		return nil, errors.New(errDefaultValuesTypeUnsupported)
+	}
+}
+
+func (r *customFieldResource) lookupCustomFieldBundleByName(ctx context.Context, fieldTypeID, bundleName string) (*youtrack.BundleRef, error) {
+	switch extractFieldTypePrefix(fieldTypeID) {
+	case fieldTypePrefixEnum:
+		bundle, err := r.client.GetEnumBundleByName(ctx, bundleName)
+		if err != nil {
+			return nil, fmt.Errorf("could not find enum bundle with name %q: %w", bundleName, err)
+		}
+		return &youtrack.BundleRef{ID: bundle.ID, Type: bundleTypeEnum}, nil
+	case fieldTypePrefixState:
+		bundle, err := r.client.GetStateBundleByName(ctx, bundleName)
+		if err != nil {
+			return nil, fmt.Errorf("could not find state bundle with name %q: %w", bundleName, err)
+		}
+		return &youtrack.BundleRef{ID: bundle.ID, Type: bundleTypeState}, nil
+	default:
+		return nil, errors.New(errBundleNameTypeUnsupported)
+	}
+}
+
+func resolveEnumCustomFieldDefaultValues(
+	ctx context.Context,
+	client *youtrack.Client,
+	bundleID string,
+	names []string,
+) ([]youtrack.ProjectCustomFieldValueRef, error) {
+	bundle, err := client.GetEnumBundleByID(ctx, bundleID)
+	if err != nil {
+		return nil, fmt.Errorf("could not load enum bundle %q for default_value_names: %w", bundleID, err)
+	}
+
+	byName := make(map[string]youtrack.EnumBundleElement, len(bundle.Values))
+	for _, value := range bundle.Values {
+		byName[value.Name] = value
+	}
+
+	refs := make([]youtrack.ProjectCustomFieldValueRef, 0, len(names))
+	for _, name := range names {
+		value, exists := byName[name]
+		if !exists {
+			return nil, fmt.Errorf("default value %q not found in enum bundle %q", name, bundle.Name)
+		}
+		refs = append(refs, youtrack.ProjectCustomFieldValueRef{ID: value.ID, Name: value.Name, Type: value.Type})
+	}
+
+	return refs, nil
+}
+
+func resolveStateCustomFieldDefaultValues(
+	ctx context.Context,
+	client *youtrack.Client,
+	bundleID string,
+	names []string,
+) ([]youtrack.ProjectCustomFieldValueRef, error) {
+	bundle, err := client.GetStateBundleByID(ctx, bundleID)
+	if err != nil {
+		return nil, fmt.Errorf("could not load state bundle %q for default_value_names: %w", bundleID, err)
+	}
+
+	byName := make(map[string]youtrack.StateBundleElement, len(bundle.Values))
+	for _, value := range bundle.Values {
+		byName[value.Name] = value
+	}
+
+	refs := make([]youtrack.ProjectCustomFieldValueRef, 0, len(names))
+	for _, name := range names {
+		value, exists := byName[name]
+		if !exists {
+			return nil, fmt.Errorf("default value %q not found in state bundle %q", name, bundle.Name)
+		}
+		refs = append(refs, youtrack.ProjectCustomFieldValueRef{ID: value.ID, Name: value.Name, Type: value.Type})
+	}
+
+	return refs, nil
+}
+
 func (r *customFieldResource) createWithBundleFallback(
 	ctx context.Context,
 	apiModel youtrack.CustomFieldUpsertRequest,
@@ -217,6 +459,7 @@ func customFieldRequestWithoutBundle(model youtrack.CustomFieldUpsertRequest) yo
 
 	defaults := *model.FieldDefaults
 	defaults.Bundle = nil
+	defaults.DefaultValues = nil
 	model.FieldDefaults = &defaults
 
 	return model

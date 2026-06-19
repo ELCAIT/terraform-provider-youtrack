@@ -30,10 +30,10 @@ resource "youtrack_custom_field" "severity" {
   is_displayed_in_issue_list = true
 
   field_defaults = {
-    can_be_empty     = true
-    empty_field_text = ""
-    is_public        = true
-    # Only one default bundle reference is supported for this custom field.
-    bundle_id = youtrack_enum_bundle.severity_values.id
+    can_be_empty        = true
+    empty_field_text    = ""
+    is_public           = true
+    bundle_name         = youtrack_enum_bundle.severity_values.name
+    default_value_names = ["Major"]
   }
 }

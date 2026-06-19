@@ -77,13 +77,11 @@ resource "youtrack_custom_field" "severity" {
 Optional:
 
 - `bundle_id` (String) Referenced default bundle ID for bundle-based field types.
+- `bundle_name` (String) Referenced default bundle name. Supported as input for enum[1] and state[1] bundle-based fields.
 - `can_be_empty` (Boolean) Whether issues may keep this field empty.
+- `default_value_names` (List of String) Default values for bundle-based enum/state fields, resolved by value name from the referenced bundle.
 - `empty_field_text` (String) Placeholder text shown when the field is empty.
 - `is_public` (Boolean) Whether the field is public.
-
-Read-Only:
-
-- `bundle_name` (String) Referenced default bundle name.
 
 ## Import
 
