@@ -40,6 +40,31 @@ resource "youtrack_project_custom_field" "estimation" {
   field_name = "Estimation"
 }
 
+resource "youtrack_enum_bundle" "default_priority_bundle" {
+  name = "Default priority bundle"
+
+  values = [
+    {
+      name = "High"
+    },
+    {
+      name = "Medium"
+    },
+    {
+      name = "Low"
+    },
+  ]
+}
+
+resource "youtrack_project_custom_field" "overriden_priority" {
+  project_id          = youtrack_project.test.id
+  field_name          = "Priority"
+  bundle_name         = youtrack_enum_bundle.default_priority_bundle.name
+  default_value_names = ["Medium"]
+  can_be_empty        = false
+  is_public           = true
+}
+
 resource "youtrack_project_time_tracking_settings" "example" {
   project_id            = youtrack_project.test.id
   enabled               = true

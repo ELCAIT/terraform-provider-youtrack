@@ -1,3 +1,11 @@
+## 1.0.5
+FEATURES:
+
+IMPROVEMENTS:
+
+BUG FIXES:
+- Reverted commit 2ea27f5285913d0292e0714cf0b11a3d5d6c78aa as it caused issues when overriding bundles values.
+
 ## 1.0.4
 FEATURES:
 
