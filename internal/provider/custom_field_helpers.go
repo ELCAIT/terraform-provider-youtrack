@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -298,7 +299,7 @@ func (r *customFieldResource) resolveCustomFieldDefaultValues(
 		apiModel.FieldDefaults.DefaultValues = refs
 		return nil
 	default:
-		return fmt.Errorf(errDefaultValuesTypeUnsupported)
+		return errors.New(errDefaultValuesTypeUnsupported)
 	}
 }
 
@@ -317,7 +318,7 @@ func (r *customFieldResource) lookupCustomFieldBundleByName(ctx context.Context,
 		}
 		return &youtrack.BundleRef{ID: bundle.ID, Type: bundleTypeState}, nil
 	default:
-		return nil, fmt.Errorf(errBundleNameTypeUnsupported)
+		return nil, errors.New(errBundleNameTypeUnsupported)
 	}
 }
 
