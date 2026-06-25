@@ -76,6 +76,57 @@ func (r *roleResource) buildAPIRole(model *roleResourceModel, permissions []yout
 	return apiRole
 }
 
+func permissionsFromAPI(apiPerms []youtrack.Permission) []types.String {
+	perms := make([]types.String, 0, len(apiPerms))
+	for _, perm := range apiPerms {
+		if perm.Name != "" {
+			perms = append(perms, types.StringValue(perm.Name))
+		}
+	}
+	return perms
+}
+
+func buildAPIPermissionSet(apiPerms []youtrack.Permission) map[string]struct{} {
+	m := make(map[string]struct{}, len(apiPerms))
+	for _, perm := range apiPerms {
+		if perm.Name != "" {
+			m[normalizePermissionName(perm.Name)] = struct{}{}
+		}
+	}
+	return m
+}
+
+func collectPreservedStatePerms(statePerms []types.String, apiPermSet map[string]struct{}) ([]types.String, map[string]struct{}) {
+	perms := make([]types.String, 0, len(statePerms))
+	preserved := make(map[string]struct{}, len(statePerms))
+	for _, statePerm := range statePerms {
+		key := normalizePermissionName(statePerm.ValueString())
+		if key == "" {
+			continue
+		}
+		if _, exists := apiPermSet[key]; exists {
+			perms = append(perms, statePerm)
+			preserved[key] = struct{}{}
+		}
+	}
+	return perms, preserved
+}
+
+func appendAPIOnlyPerms(perms []types.String, apiPerms []youtrack.Permission, preserved, implicitPermNames map[string]struct{}) []types.String {
+	for _, perm := range apiPerms {
+		key := normalizePermissionName(perm.Name)
+		if key == "" {
+			continue
+		}
+		_, isPreserved := preserved[key]
+		_, isImplicit := implicitPermNames[key]
+		if !isPreserved && !isImplicit {
+			perms = append(perms, types.StringValue(perm.Name))
+		}
+	}
+	return perms
+}
+
 func normalizePermissionName(name string) string {
 	return strings.ToLower(strings.TrimSpace(name))
 }

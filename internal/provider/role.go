@@ -164,64 +164,20 @@ func normalizeRoleDescription(apiDesc string, stateDesc types.String) types.Stri
 }
 
 // reconcileRolePermissions reconciles the permission list from state with the API response.
-// When the API returns a non-empty list: on import, permissions are populated from the API;
-// on normal read, state order is preserved, absent permissions are dropped,
-// and API-only permissions are appended so out-of-band changes are detected as drift.
+// On import (empty state), all API permissions are returned.
+// On normal read, state order is preserved, absent permissions are dropped,
+// and API-only non-implicit permissions are appended to detect drift.
 func reconcileRolePermissions(statePerms []types.String, apiPerms []youtrack.Permission, implicitPermNames map[string]struct{}) []types.String {
 	if len(apiPerms) == 0 {
 		return statePerms
 	}
-
 	if len(statePerms) == 0 {
-		var perms []types.String
-		for _, perm := range apiPerms {
-			if perm.Name != "" {
-				perms = append(perms, types.StringValue(perm.Name))
-			}
-		}
-		return perms
+		return permissionsFromAPI(apiPerms)
 	}
 
-	apiPermMap := make(map[string]struct{}, len(apiPerms))
-	for _, perm := range apiPerms {
-		if perm.Name != "" {
-			apiPermMap[strings.ToLower(perm.Name)] = struct{}{}
-		}
-	}
-
-	perms := make([]types.String, 0, len(apiPerms))
-	preserved := make(map[string]struct{}, len(statePerms))
-	for _, statePerm := range statePerms {
-		stateName := strings.TrimSpace(statePerm.ValueString())
-		if stateName == "" {
-			continue
-		}
-
-		stateKey := strings.ToLower(stateName)
-		if _, exists := apiPermMap[stateKey]; exists {
-			perms = append(perms, statePerm)
-			preserved[stateKey] = struct{}{}
-		}
-	}
-
-	for _, perm := range apiPerms {
-		apiName := strings.TrimSpace(perm.Name)
-		if apiName == "" {
-			continue
-		}
-
-		apiKey := strings.ToLower(apiName)
-		if _, exists := preserved[apiKey]; exists {
-			continue
-		}
-		if _, implicit := implicitPermNames[apiKey]; implicit {
-			continue
-		}
-
-		perms = append(perms, types.StringValue(apiName))
-	}
-
-	return perms
+	apiPermSet := buildAPIPermissionSet(apiPerms)
+	perms, preserved := collectPreservedStatePerms(statePerms, apiPermSet)
+	return appendAPIOnlyPerms(perms, apiPerms, preserved, implicitPermNames)
 }
 
 // Update updates the resource and sets the updated Terraform state on success.

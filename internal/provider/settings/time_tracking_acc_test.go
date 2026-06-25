@@ -168,6 +168,16 @@ func registerWorkItemTypesCleanup(t *testing.T, client *youtrack.Client, origina
 	})
 }
 
+func countRemainingOriginal(currentTypes []youtrack.WorkItemType, originalIDs map[string]struct{}) int {
+	count := 0
+	for _, wt := range currentTypes {
+		if _, exists := originalIDs[wt.ID]; exists {
+			count++
+		}
+	}
+	return count
+}
+
 func deleteWorkItemTypesBefore(t *testing.T, client *youtrack.Client, types []youtrack.WorkItemType) {
 	t.Helper()
 	// Delete all pre-existing work item types so the test starts with a clean slate.
@@ -189,19 +199,12 @@ func deleteWorkItemTypesBefore(t *testing.T, client *youtrack.Client, types []yo
 			t.Fatalf("failed to list work item types while waiting for cleanup: %v", err)
 		}
 
-		remainingOriginal := 0
-		for _, wt := range currentTypes {
-			if _, exists := originalIDs[wt.ID]; exists {
-				remainingOriginal++
-			}
-		}
-
-		if remainingOriginal == 0 {
+		if countRemainingOriginal(currentTypes, originalIDs) == 0 {
 			return
 		}
 
 		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for pre-existing work item types to be deleted; %d original types still present", remainingOriginal)
+			t.Fatalf("timed out waiting for pre-existing work item types to be deleted")
 		}
 
 		time.Sleep(500 * time.Millisecond)
