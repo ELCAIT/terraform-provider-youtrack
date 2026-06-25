@@ -76,28 +76,16 @@ func (r *roleResource) buildAPIRole(model *roleResourceModel, permissions []yout
 	return apiRole
 }
 
-// resolveImplicitPermissionNames computes permissions implied by the configured
-// state permissions using both impliedPermissions and dependentPermissions
-// relations from the permissions catalog.
-func resolveImplicitPermissionNames(statePerms []types.String, catalog []youtrack.PermissionGraphEntry) map[string]struct{} {
-	result := make(map[string]struct{})
-	if len(statePerms) == 0 || len(catalog) == 0 {
-		return result
-	}
+func normalizePermissionName(name string) string {
+	return strings.ToLower(strings.TrimSpace(name))
+}
 
-	catalogByName := make(map[string]youtrack.PermissionGraphEntry, len(catalog))
-	for _, p := range catalog {
-		name := strings.ToLower(strings.TrimSpace(p.Name))
-		if name == "" {
-			continue
-		}
-		catalogByName[name] = p
-	}
-
+func buildConfiguredPermissions(statePerms []types.String) (map[string]struct{}, []string) {
 	configured := make(map[string]struct{}, len(statePerms))
 	queue := make([]string, 0, len(statePerms))
+
 	for _, statePerm := range statePerms {
-		name := strings.ToLower(strings.TrimSpace(statePerm.ValueString()))
+		name := normalizePermissionName(statePerm.ValueString())
 		if name == "" {
 			continue
 		}
@@ -105,7 +93,26 @@ func resolveImplicitPermissionNames(statePerms []types.String, catalog []youtrac
 		queue = append(queue, name)
 	}
 
+	return configured, queue
+}
+
+func buildPermissionCatalogByName(catalog []youtrack.PermissionGraphEntry) map[string]youtrack.PermissionGraphEntry {
+	catalogByName := make(map[string]youtrack.PermissionGraphEntry, len(catalog))
+
+	for _, p := range catalog {
+		name := normalizePermissionName(p.Name)
+		if name == "" {
+			continue
+		}
+		catalogByName[name] = p
+	}
+
+	return catalogByName
+}
+
+func collectImpliedPermissions(result map[string]struct{}, configured map[string]struct{}, queue []string, catalogByName map[string]youtrack.PermissionGraphEntry) {
 	visited := make(map[string]struct{}, len(queue))
+
 	for len(queue) > 0 {
 		name := queue[0]
 		queue = queue[1:]
@@ -121,7 +128,7 @@ func resolveImplicitPermissionNames(statePerms []types.String, catalog []youtrac
 		}
 
 		for _, implied := range perm.ImpliedPermissions {
-			impliedName := strings.ToLower(strings.TrimSpace(implied.Name))
+			impliedName := normalizePermissionName(implied.Name)
 			if impliedName == "" {
 				continue
 			}
@@ -131,17 +138,21 @@ func resolveImplicitPermissionNames(statePerms []types.String, catalog []youtrac
 			queue = append(queue, impliedName)
 		}
 	}
+}
 
+func collectDependentPermissions(result map[string]struct{}, configured map[string]struct{}, catalog []youtrack.PermissionGraphEntry) {
 	for _, candidate := range catalog {
-		candidateName := strings.ToLower(strings.TrimSpace(candidate.Name))
+		candidateName := normalizePermissionName(candidate.Name)
 		if candidateName == "" {
 			continue
 		}
+
 		for _, dependent := range candidate.DependentPermissions {
-			dependentName := strings.ToLower(strings.TrimSpace(dependent.Name))
+			dependentName := normalizePermissionName(dependent.Name)
 			if dependentName == "" {
 				continue
 			}
+
 			if _, configuredDep := configured[dependentName]; configuredDep {
 				if _, explicitlyConfigured := configured[candidateName]; !explicitlyConfigured {
 					result[candidateName] = struct{}{}
@@ -150,6 +161,22 @@ func resolveImplicitPermissionNames(statePerms []types.String, catalog []youtrac
 			}
 		}
 	}
+}
+
+// resolveImplicitPermissionNames computes permissions implied by the configured
+// state permissions using both impliedPermissions and dependentPermissions
+// relations from the permissions catalog.
+func resolveImplicitPermissionNames(statePerms []types.String, catalog []youtrack.PermissionGraphEntry) map[string]struct{} {
+	result := make(map[string]struct{})
+	if len(statePerms) == 0 || len(catalog) == 0 {
+		return result
+	}
+
+	catalogByName := buildPermissionCatalogByName(catalog)
+	configured, queue := buildConfiguredPermissions(statePerms)
+
+	collectImpliedPermissions(result, configured, queue, catalogByName)
+	collectDependentPermissions(result, configured, catalog)
 
 	return result
 }
