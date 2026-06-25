@@ -4,6 +4,7 @@
 package provider
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -174,11 +175,10 @@ func TestPermissionValidation(t *testing.T) {
 
 func TestPreservePermissionOrder(t *testing.T) {
 	tests := []struct {
-		name         string
-		statePerms   []types.String
-		apiPerms     []youtrack.Permission
-		wantPreserve bool
-		wantCount    int
+		name       string
+		statePerms []types.String
+		apiPerms   []youtrack.Permission
+		want       []types.String
 	}{
 		{
 			name: "preserves order and casing from state",
@@ -190,8 +190,10 @@ func TestPreservePermissionOrder(t *testing.T) {
 				{Id: "perm2", Name: createIssuePerm},
 				{Id: "perm1", Name: readIssuePerm},
 			},
-			wantPreserve: true,
-			wantCount:    2,
+			want: []types.String{
+				types.StringValue(readIssuePerm),
+				types.StringValue(createIssuePerm),
+			},
 		},
 		{
 			name: "filters out removed permissions",
@@ -202,38 +204,95 @@ func TestPreservePermissionOrder(t *testing.T) {
 			apiPerms: []youtrack.Permission{
 				{Id: "perm1", Name: readIssuePerm},
 			},
-			wantPreserve: true,
-			wantCount:    1,
+			want: []types.String{
+				types.StringValue(readIssuePerm),
+			},
 		},
 		{
-			name:       "empty state permissions",
+			name:       "imports api permissions when state empty",
 			statePerms: []types.String{},
 			apiPerms: []youtrack.Permission{
 				{Id: "perm1", Name: readIssuePerm},
 			},
-			wantPreserve: true,
-			wantCount:    0,
+			want: []types.String{
+				types.StringValue(readIssuePerm),
+			},
+		},
+		{
+			name: "appends api-only permissions to detect drift",
+			statePerms: []types.String{
+				types.StringValue(readIssuePerm),
+			},
+			apiPerms: []youtrack.Permission{
+				{Id: "perm1", Name: readIssuePerm},
+				{Id: "perm3", Name: "Read User Basic"},
+			},
+			want: []types.String{
+				types.StringValue(readIssuePerm),
+				types.StringValue("Read User Basic"),
+			},
+		},
+		{
+			name: "ignores implicit api-only permissions",
+			statePerms: []types.String{
+				types.StringValue(readIssuePerm),
+			},
+			apiPerms: []youtrack.Permission{
+				{Id: "perm1", Name: readIssuePerm},
+				{Id: "perm2", Name: "Read Project Basic"},
+			},
+			want: []types.String{
+				types.StringValue(readIssuePerm),
+			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create API permission map (simulating the Read logic)
-			apiPermMap := make(map[string]string)
-			for _, permission := range tt.apiPerms {
-				apiPermMap[strings.ToLower(permission.Name)] = permission.Name
-			}
-
-			var preserved []types.String
-			for _, statePerm := range tt.statePerms {
-				permName := statePerm.ValueString()
-				if _, exists := apiPermMap[strings.ToLower(permName)]; exists {
-					preserved = append(preserved, types.StringValue(permName))
+			implicitPerms := map[string]struct{}{}
+			for _, perm := range tt.apiPerms {
+				if strings.EqualFold(perm.Name, "Read Project Basic") {
+					implicitPerms[strings.ToLower(perm.Name)] = struct{}{}
 				}
 			}
 
-			helpers.AssertFieldEqual(t, "preserved count", len(preserved), tt.wantCount)
+			got := reconcileRolePermissions(tt.statePerms, tt.apiPerms, implicitPerms)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("unexpected permissions order/content: got=%v want=%v", got, tt.want)
+			}
 		})
+	}
+}
+
+func TestResolveImplicitPermissionNames(t *testing.T) {
+	statePerms := []types.String{types.StringValue(readIssuePerm)}
+	catalog := []youtrack.PermissionGraphEntry{
+		{
+			Name: readIssuePerm,
+			ImpliedPermissions: []youtrack.PermissionGraphEntry{
+				{Name: "Read Project Basic"},
+			},
+		},
+		{
+			Name: "Read Project Basic",
+			DependentPermissions: []youtrack.PermissionGraphEntry{
+				{Name: readIssuePerm},
+			},
+		},
+		{
+			Name: "Create Article",
+			ImpliedPermissions: []youtrack.PermissionGraphEntry{
+				{Name: "Read Article"},
+			},
+		},
+	}
+
+	got := resolveImplicitPermissionNames(statePerms, catalog)
+	if _, ok := got[strings.ToLower("Read Project Basic")]; !ok {
+		t.Fatalf("expected implied permission to be resolved")
+	}
+	if _, ok := got[strings.ToLower("Read Article")]; ok {
+		t.Fatalf("unexpected unrelated implied permission")
 	}
 }
 

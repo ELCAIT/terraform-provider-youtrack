@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 
@@ -167,14 +168,46 @@ func registerWorkItemTypesCleanup(t *testing.T, client *youtrack.Client, origina
 	})
 }
 
+func countRemainingOriginal(currentTypes []youtrack.WorkItemType, originalIDs map[string]struct{}) int {
+	count := 0
+	for _, wt := range currentTypes {
+		if _, exists := originalIDs[wt.ID]; exists {
+			count++
+		}
+	}
+	return count
+}
+
 func deleteWorkItemTypesBefore(t *testing.T, client *youtrack.Client, types []youtrack.WorkItemType) {
 	t.Helper()
 	// Delete all pre-existing work item types so the test starts with a clean slate.
 	// This prevents YouTrack's soft-delete ("X (being removed)") from polluting test state.
+	originalIDs := make(map[string]struct{}, len(types))
 	for _, wt := range types {
+		if wt.ID != "" {
+			originalIDs[wt.ID] = struct{}{}
+		}
 		if err := client.DeleteWorkItemType(context.Background(), wt.ID); err != nil {
 			t.Fatalf("failed to delete pre-existing work item type %q before test: %v", wt.Name, err)
 		}
+	}
+
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		currentTypes, err := client.ListWorkItemTypes(context.Background())
+		if err != nil {
+			t.Fatalf("failed to list work item types while waiting for cleanup: %v", err)
+		}
+
+		if countRemainingOriginal(currentTypes, originalIDs) == 0 {
+			return
+		}
+
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for pre-existing work item types to be deleted")
+		}
+
+		time.Sleep(500 * time.Millisecond)
 	}
 }
 
