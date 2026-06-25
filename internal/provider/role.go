@@ -134,7 +134,19 @@ func (r *roleResource) Read(ctx context.Context, req resource.ReadRequest, resp 
 
 	state.Name = types.StringValue(apiRole.Name)
 	state.Description = normalizeRoleDescription(apiRole.Description, state.Description)
-	state.Permissions = reconcileRolePermissions(state.Permissions, apiRole.Permissions)
+
+	implicitPermissionNames := map[string]struct{}{}
+	permissionGraph, permsErr := r.client.GetPermissionGraph(ctx)
+	if permsErr != nil {
+		resp.Diagnostics.AddWarning(
+			"Unable to Resolve Implicit Permissions",
+			fmt.Sprintf("Could not load permission dependency graph; implicit permissions may appear in state: %v", permsErr),
+		)
+	} else {
+		implicitPermissionNames = resolveImplicitPermissionNames(state.Permissions, permissionGraph)
+	}
+
+	state.Permissions = reconcileRolePermissions(state.Permissions, apiRole.Permissions, implicitPermissionNames)
 
 	helpers.SetStateAndCheckError(ctx, resp, &state)
 }
@@ -153,8 +165,9 @@ func normalizeRoleDescription(apiDesc string, stateDesc types.String) types.Stri
 
 // reconcileRolePermissions reconciles the permission list from state with the API response.
 // When the API returns a non-empty list: on import, permissions are populated from the API;
-// on normal read, state order is preserved and absent permissions are dropped.
-func reconcileRolePermissions(statePerms []types.String, apiPerms []youtrack.Permission) []types.String {
+// on normal read, state order is preserved, absent permissions are dropped,
+// and API-only permissions are appended so out-of-band changes are detected as drift.
+func reconcileRolePermissions(statePerms []types.String, apiPerms []youtrack.Permission, implicitPermNames map[string]struct{}) []types.String {
 	if len(apiPerms) == 0 {
 		return statePerms
 	}
@@ -171,15 +184,43 @@ func reconcileRolePermissions(statePerms []types.String, apiPerms []youtrack.Per
 
 	apiPermMap := make(map[string]struct{}, len(apiPerms))
 	for _, perm := range apiPerms {
-		apiPermMap[strings.ToLower(perm.Name)] = struct{}{}
-	}
-
-	var perms []types.String
-	for _, statePerm := range statePerms {
-		if _, exists := apiPermMap[strings.ToLower(statePerm.ValueString())]; exists {
-			perms = append(perms, statePerm)
+		if perm.Name != "" {
+			apiPermMap[strings.ToLower(perm.Name)] = struct{}{}
 		}
 	}
+
+	perms := make([]types.String, 0, len(apiPerms))
+	preserved := make(map[string]struct{}, len(statePerms))
+	for _, statePerm := range statePerms {
+		stateName := strings.TrimSpace(statePerm.ValueString())
+		if stateName == "" {
+			continue
+		}
+
+		stateKey := strings.ToLower(stateName)
+		if _, exists := apiPermMap[stateKey]; exists {
+			perms = append(perms, statePerm)
+			preserved[stateKey] = struct{}{}
+		}
+	}
+
+	for _, perm := range apiPerms {
+		apiName := strings.TrimSpace(perm.Name)
+		if apiName == "" {
+			continue
+		}
+
+		apiKey := strings.ToLower(apiName)
+		if _, exists := preserved[apiKey]; exists {
+			continue
+		}
+		if _, implicit := implicitPermNames[apiKey]; implicit {
+			continue
+		}
+
+		perms = append(perms, types.StringValue(apiName))
+	}
+
 	return perms
 }
 

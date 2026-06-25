@@ -2,6 +2,15 @@
 FEATURES:
 
 IMPROVEMENTS:
+- Refactor role management to support implied and dependent permissions, allowing for more flexible and granular permission assignments.
+
+BUG FIXES:
+- Fix role dritf between UI and terraform manifest, ensuring that the state of roles in YouTrack matches the desired configuration defined in Terraform.
+
+## 1.0.5
+FEATURES:
+
+IMPROVEMENTS:
 
 BUG FIXES:
 - Reverted commit 2ea27f5285913d0292e0714cf0b11a3d5d6c78aa as it caused issues when overriding bundles values.

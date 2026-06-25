@@ -75,3 +75,81 @@ func (r *roleResource) buildAPIRole(model *roleResourceModel, permissions []yout
 
 	return apiRole
 }
+
+// resolveImplicitPermissionNames computes permissions implied by the configured
+// state permissions using both impliedPermissions and dependentPermissions
+// relations from the permissions catalog.
+func resolveImplicitPermissionNames(statePerms []types.String, catalog []youtrack.PermissionGraphEntry) map[string]struct{} {
+	result := make(map[string]struct{})
+	if len(statePerms) == 0 || len(catalog) == 0 {
+		return result
+	}
+
+	catalogByName := make(map[string]youtrack.PermissionGraphEntry, len(catalog))
+	for _, p := range catalog {
+		name := strings.ToLower(strings.TrimSpace(p.Name))
+		if name == "" {
+			continue
+		}
+		catalogByName[name] = p
+	}
+
+	configured := make(map[string]struct{}, len(statePerms))
+	queue := make([]string, 0, len(statePerms))
+	for _, statePerm := range statePerms {
+		name := strings.ToLower(strings.TrimSpace(statePerm.ValueString()))
+		if name == "" {
+			continue
+		}
+		configured[name] = struct{}{}
+		queue = append(queue, name)
+	}
+
+	visited := make(map[string]struct{}, len(queue))
+	for len(queue) > 0 {
+		name := queue[0]
+		queue = queue[1:]
+
+		if _, seen := visited[name]; seen {
+			continue
+		}
+		visited[name] = struct{}{}
+
+		perm, ok := catalogByName[name]
+		if !ok {
+			continue
+		}
+
+		for _, implied := range perm.ImpliedPermissions {
+			impliedName := strings.ToLower(strings.TrimSpace(implied.Name))
+			if impliedName == "" {
+				continue
+			}
+			if _, explicitlyConfigured := configured[impliedName]; !explicitlyConfigured {
+				result[impliedName] = struct{}{}
+			}
+			queue = append(queue, impliedName)
+		}
+	}
+
+	for _, candidate := range catalog {
+		candidateName := strings.ToLower(strings.TrimSpace(candidate.Name))
+		if candidateName == "" {
+			continue
+		}
+		for _, dependent := range candidate.DependentPermissions {
+			dependentName := strings.ToLower(strings.TrimSpace(dependent.Name))
+			if dependentName == "" {
+				continue
+			}
+			if _, configuredDep := configured[dependentName]; configuredDep {
+				if _, explicitlyConfigured := configured[candidateName]; !explicitlyConfigured {
+					result[candidateName] = struct{}{}
+				}
+				break
+			}
+		}
+	}
+
+	return result
+}
