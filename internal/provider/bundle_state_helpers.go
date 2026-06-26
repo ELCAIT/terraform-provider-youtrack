@@ -1,18 +1,15 @@
 package provider
 
 import (
-	"sort"
-
 	helpers "github.com/elcait/terraform-provider-youtrack/internal/helpers"
 	youtrack "github.com/elcait/youtrack-api-client/client"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
 func (m *stateBundleResourceModel) toAPIModel() youtrack.StateBundle {
-	values := make([]youtrack.StateBundleElement, 0, len(m.Values))
-	for _, value := range m.Values {
-		values = append(values, value.toAPIModel())
-	}
+	values := mapBundleValues(m.Values, func(value stateBundleValueModel) youtrack.StateBundleElement {
+		return value.toAPIModel()
+	})
 
 	return youtrack.StateBundle{
 		Name:   m.Name.ValueString(),
@@ -58,22 +55,12 @@ func (m *stateBundleValueModel) toAPIModel() youtrack.StateBundleElement {
 }
 
 func unexpectedStateValueNames(plan stateBundleResourceModel, updated *youtrack.StateBundle) []string {
-	plannedByName := make(map[string]struct{}, len(plan.Values))
-	for _, value := range plan.Values {
-		plannedByName[normalizeBundleValueName(value.Name.ValueString())] = struct{}{}
-	}
-
-	unexpected := make([]string, 0)
-	for _, value := range updated.Values {
-		normalizedName := normalizeBundleValueName(value.Name)
-		if _, ok := plannedByName[normalizedName]; ok {
-			continue
-		}
-		unexpected = append(unexpected, value.Name)
-	}
-
-	sort.Strings(unexpected)
-	return unexpected
+	return unexpectedBundleValueNames(
+		plan.Values,
+		updated.Values,
+		func(value stateBundleValueModel) string { return value.Name.ValueString() },
+		func(value youtrack.StateBundleElement) string { return value.Name },
+	)
 }
 
 func (m *stateBundleResourceModel) fromAPIModel(apiModel *youtrack.StateBundle) {
@@ -81,9 +68,8 @@ func (m *stateBundleResourceModel) fromAPIModel(apiModel *youtrack.StateBundle) 
 	m.Name = types.StringValue(apiModel.Name)
 	m.IsUpdateable = types.BoolValue(apiModel.IsUpdateable)
 
-	values := make([]stateBundleValueModel, 0, len(apiModel.Values))
-	for _, value := range apiModel.Values {
-		values = append(values, stateBundleValueModel{
+	values := mapBundleValues(apiModel.Values, func(value youtrack.StateBundleElement) stateBundleValueModel {
+		return stateBundleValueModel{
 			ID:            types.StringValue(value.ID),
 			Name:          types.StringValue(value.Name),
 			LocalizedName: helpers.StringOrNull(value.LocalizedName),
@@ -91,7 +77,7 @@ func (m *stateBundleResourceModel) fromAPIModel(apiModel *youtrack.StateBundle) 
 			IsResolved:    types.BoolValue(value.IsResolved),
 			Archived:      types.BoolValue(value.Archived),
 			Ordinal:       types.Int64Value(int64(value.Ordinal)),
-		})
-	}
+		}
+	})
 	m.Values = values
 }

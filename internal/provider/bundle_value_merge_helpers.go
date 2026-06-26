@@ -1,5 +1,7 @@
 package provider
 
+import "sort"
+
 type bundleValueMergeOps[Model any, API any] struct {
 	toAPI    func(Model) API
 	modelID  func(Model) string
@@ -93,4 +95,32 @@ func appendRemainingPlannedWithoutID[Model any, API any](plannedWithoutID []API,
 		*values = append(*values, plannedValue)
 		delete(plannedWithoutIDByName, normalizedName)
 	}
+}
+
+func mapBundleValues[In any, Out any](values []In, mapper func(In) Out) []Out {
+	mapped := make([]Out, 0, len(values))
+	for _, value := range values {
+		mapped = append(mapped, mapper(value))
+	}
+
+	return mapped
+}
+
+func unexpectedBundleValueNames[Plan any, API any](planValues []Plan, updatedValues []API, planName func(Plan) string, apiName func(API) string) []string {
+	plannedByName := make(map[string]struct{}, len(planValues))
+	for _, value := range planValues {
+		plannedByName[normalizeBundleValueName(planName(value))] = struct{}{}
+	}
+
+	unexpected := make([]string, 0)
+	for _, value := range updatedValues {
+		normalizedName := normalizeBundleValueName(apiName(value))
+		if _, ok := plannedByName[normalizedName]; ok {
+			continue
+		}
+		unexpected = append(unexpected, apiName(value))
+	}
+
+	sort.Strings(unexpected)
+	return unexpected
 }

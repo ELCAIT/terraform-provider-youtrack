@@ -1,7 +1,6 @@
 package provider
 
 import (
-	"sort"
 	"strings"
 
 	helpers "github.com/elcait/terraform-provider-youtrack/internal/helpers"
@@ -12,10 +11,9 @@ import (
 )
 
 func (m *enumBundleResourceModel) toAPIModel() youtrack.EnumBundle {
-	values := make([]youtrack.EnumBundleElement, 0, len(m.Values))
-	for _, value := range m.Values {
-		values = append(values, value.toAPIModel())
-	}
+	values := mapBundleValues(m.Values, func(value enumBundleValueModel) youtrack.EnumBundleElement {
+		return value.toAPIModel()
+	})
 
 	return youtrack.EnumBundle{
 		Name:   m.Name.ValueString(),
@@ -77,22 +75,12 @@ func normalizeBundleValueName(name string) string {
 }
 
 func unexpectedEnumValueNames(plan enumBundleResourceModel, updated *youtrack.EnumBundle) []string {
-	plannedByName := make(map[string]struct{}, len(plan.Values))
-	for _, value := range plan.Values {
-		plannedByName[normalizeBundleValueName(value.Name.ValueString())] = struct{}{}
-	}
-
-	unexpected := make([]string, 0)
-	for _, value := range updated.Values {
-		normalizedName := normalizeBundleValueName(value.Name)
-		if _, ok := plannedByName[normalizedName]; ok {
-			continue
-		}
-		unexpected = append(unexpected, value.Name)
-	}
-
-	sort.Strings(unexpected)
-	return unexpected
+	return unexpectedBundleValueNames(
+		plan.Values,
+		updated.Values,
+		func(value enumBundleValueModel) string { return value.Name.ValueString() },
+		func(value youtrack.EnumBundleElement) string { return value.Name },
+	)
 }
 
 func (m *enumBundleResourceModel) fromAPIModel(apiModel *youtrack.EnumBundle) {
@@ -100,16 +88,15 @@ func (m *enumBundleResourceModel) fromAPIModel(apiModel *youtrack.EnumBundle) {
 	m.Name = types.StringValue(apiModel.Name)
 	m.IsUpdateable = types.BoolValue(apiModel.IsUpdateable)
 
-	values := make([]enumBundleValueModel, 0, len(apiModel.Values))
-	for _, value := range apiModel.Values {
-		values = append(values, enumBundleValueModel{
+	values := mapBundleValues(apiModel.Values, func(value youtrack.EnumBundleElement) enumBundleValueModel {
+		return enumBundleValueModel{
 			ID:            types.StringValue(value.ID),
 			Name:          types.StringValue(value.Name),
 			LocalizedName: helpers.StringOrNull(value.LocalizedName),
 			Description:   helpers.StringOrNull(value.Description),
 			Archived:      types.BoolValue(value.Archived),
 			Ordinal:       types.Int64Value(int64(value.Ordinal)),
-		})
-	}
+		}
+	})
 	m.Values = values
 }
