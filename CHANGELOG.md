@@ -1,3 +1,14 @@
+## 1.0.6
+FEATURES:
+
+IMPROVEMENTS:
+
+BUG FIXES:
+- Fix bundle management for custom fields, ensuring that the provider correctly handles the creation, update, and deletion of bundle values without causing errors or inconsistencies in the YouTrack instance.
+- Fix time tracking settings acceptance tests
+- Fix global time tracking refresh drift by always reading work item types from the dedicated endpoint before writing Terraform state.
+- Fix transient YouTrack `WorkItemType[...] was removed` server errors by retrying work item type list reads during global time tracking read/sync flows.
+
 ## 1.0.5
 FEATURES:
 
@@ -5,7 +16,7 @@ IMPROVEMENTS:
 - Refactor role management to support implied and dependent permissions, allowing for more flexible and granular permission assignments.
 
 BUG FIXES:
-- Fix role dritf between UI and terraform manifest, ensuring that the state of roles in YouTrack matches the desired configuration defined in Terraform.
+- Fix role drift between UI and terraform manifest, ensuring that the state of roles in YouTrack matches the desired configuration defined in Terraform.
 
 ## 1.0.5
 FEATURES:

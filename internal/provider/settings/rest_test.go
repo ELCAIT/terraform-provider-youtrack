@@ -124,6 +124,7 @@ func TestConvertRestSettingsToModel(t *testing.T) {
 
 			if got == nil {
 				t.Fatal("convertRestSettingsToModel returned nil")
+				return
 			}
 
 			helpers.AssertFieldEqual(t, "ID", got.ID.ValueString(), tt.id)

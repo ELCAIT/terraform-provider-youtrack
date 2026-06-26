@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	helpers "github.com/elcait/terraform-provider-youtrack/internal/helpers"
 
@@ -136,7 +137,37 @@ func (r *enumBundleResource) Update(ctx context.Context, req resource.UpdateRequ
 
 	updated, err := r.client.UpdateEnumBundle(ctx, plan.ID.ValueString(), plan.toAPIModel())
 	if err != nil {
-		resp.Diagnostics.AddError(errUpdatingEnumBundle, fmt.Sprintf(helpers.ErrCouldNotUpdateFmt, "enum bundle", err))
+		if !isRequiredCustomFieldWorkflowError(err) {
+			resp.Diagnostics.AddError(errUpdatingEnumBundle, fmt.Sprintf(helpers.ErrCouldNotUpdateFmt, "enum bundle", err))
+			return
+		}
+
+		current, getErr := r.client.GetEnumBundleByID(ctx, plan.ID.ValueString())
+		if getErr != nil {
+			resp.Diagnostics.AddError(
+				errUpdatingEnumBundle,
+				fmt.Sprintf("Could not recover current enum bundle for safe update: %v (original update error: %v)", getErr, err),
+			)
+			return
+		}
+
+		fallbackPayload := plan.toAPIModelPreservingExisting(current)
+		updated, err = r.client.UpdateEnumBundle(ctx, plan.ID.ValueString(), fallbackPayload)
+		if err != nil {
+			resp.Diagnostics.AddError(errUpdatingEnumBundle, fmt.Sprintf(helpers.ErrCouldNotUpdateFmt, "enum bundle", err))
+			return
+		}
+	}
+
+	unexpectedValues := unexpectedEnumValueNames(plan, updated)
+	if len(unexpectedValues) > 0 {
+		resp.Diagnostics.AddError(
+			errUpdatingEnumBundle,
+			fmt.Sprintf(
+				"YouTrack kept values that are not present in configuration: %s. This usually happens when values are still required by workflows or existing issues. Keep these values in configuration or set archived = true instead of removing them.",
+				strings.Join(unexpectedValues, ", "),
+			),
+		)
 		return
 	}
 
@@ -162,42 +193,4 @@ func (r *enumBundleResource) Delete(ctx context.Context, req resource.DeleteRequ
 
 func (r *enumBundleResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
-}
-
-func (m *enumBundleResourceModel) toAPIModel() youtrack.EnumBundle {
-	values := make([]youtrack.EnumBundleElement, 0, len(m.Values))
-	for _, value := range m.Values {
-		item := youtrack.EnumBundleElement{
-			Name:     value.Name.ValueString(),
-			Archived: helpers.BoolFromOptional(value.Archived),
-		}
-		item.ID = helpers.StringFromOptional(value.ID)
-		item.Description = helpers.StringFromOptional(value.Description)
-		item.LocalizedName = helpers.StringFromOptional(value.LocalizedName)
-		values = append(values, item)
-	}
-
-	return youtrack.EnumBundle{
-		Name:   m.Name.ValueString(),
-		Values: values,
-	}
-}
-
-func (m *enumBundleResourceModel) fromAPIModel(apiModel *youtrack.EnumBundle) {
-	m.ID = types.StringValue(apiModel.ID)
-	m.Name = types.StringValue(apiModel.Name)
-	m.IsUpdateable = types.BoolValue(apiModel.IsUpdateable)
-
-	values := make([]enumBundleValueModel, 0, len(apiModel.Values))
-	for _, value := range apiModel.Values {
-		values = append(values, enumBundleValueModel{
-			ID:            types.StringValue(value.ID),
-			Name:          types.StringValue(value.Name),
-			LocalizedName: helpers.StringOrNull(value.LocalizedName),
-			Description:   helpers.StringOrNull(value.Description),
-			Archived:      types.BoolValue(value.Archived),
-			Ordinal:       types.Int64Value(int64(value.Ordinal)),
-		})
-	}
-	m.Values = values
 }

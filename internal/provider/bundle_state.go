@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	helpers "github.com/elcait/terraform-provider-youtrack/internal/helpers"
 
@@ -144,7 +145,37 @@ func (r *stateBundleResource) Update(ctx context.Context, req resource.UpdateReq
 
 	updated, err := r.client.UpdateStateBundle(ctx, plan.ID.ValueString(), plan.toAPIModel())
 	if err != nil {
-		resp.Diagnostics.AddError(errUpdatingStateBundle, fmt.Sprintf(helpers.ErrCouldNotUpdateFmt, "state bundle", err))
+		if !isRequiredCustomFieldWorkflowError(err) {
+			resp.Diagnostics.AddError(errUpdatingStateBundle, fmt.Sprintf(helpers.ErrCouldNotUpdateFmt, "state bundle", err))
+			return
+		}
+
+		current, getErr := r.client.GetStateBundleByID(ctx, plan.ID.ValueString())
+		if getErr != nil {
+			resp.Diagnostics.AddError(
+				errUpdatingStateBundle,
+				fmt.Sprintf("Could not recover current state bundle for safe update: %v (original update error: %v)", getErr, err),
+			)
+			return
+		}
+
+		fallbackPayload := plan.toAPIModelPreservingExisting(current)
+		updated, err = r.client.UpdateStateBundle(ctx, plan.ID.ValueString(), fallbackPayload)
+		if err != nil {
+			resp.Diagnostics.AddError(errUpdatingStateBundle, fmt.Sprintf(helpers.ErrCouldNotUpdateFmt, "state bundle", err))
+			return
+		}
+	}
+
+	unexpectedValues := unexpectedStateValueNames(plan, updated)
+	if len(unexpectedValues) > 0 {
+		resp.Diagnostics.AddError(
+			errUpdatingStateBundle,
+			fmt.Sprintf(
+				"YouTrack kept values that are not present in configuration: %s. This usually happens when values are still required by workflows or existing issues. Keep these values in configuration or set archived = true instead of removing them.",
+				strings.Join(unexpectedValues, ", "),
+			),
+		)
 		return
 	}
 
@@ -170,44 +201,4 @@ func (r *stateBundleResource) Delete(ctx context.Context, req resource.DeleteReq
 
 func (r *stateBundleResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
-}
-
-func (m *stateBundleResourceModel) toAPIModel() youtrack.StateBundle {
-	values := make([]youtrack.StateBundleElement, 0, len(m.Values))
-	for _, value := range m.Values {
-		item := youtrack.StateBundleElement{
-			Name:       value.Name.ValueString(),
-			IsResolved: helpers.BoolFromOptional(value.IsResolved),
-			Archived:   helpers.BoolFromOptional(value.Archived),
-		}
-		item.ID = helpers.StringFromOptional(value.ID)
-		item.Description = helpers.StringFromOptional(value.Description)
-		item.LocalizedName = helpers.StringFromOptional(value.LocalizedName)
-		values = append(values, item)
-	}
-
-	return youtrack.StateBundle{
-		Name:   m.Name.ValueString(),
-		Values: values,
-	}
-}
-
-func (m *stateBundleResourceModel) fromAPIModel(apiModel *youtrack.StateBundle) {
-	m.ID = types.StringValue(apiModel.ID)
-	m.Name = types.StringValue(apiModel.Name)
-	m.IsUpdateable = types.BoolValue(apiModel.IsUpdateable)
-
-	values := make([]stateBundleValueModel, 0, len(apiModel.Values))
-	for _, value := range apiModel.Values {
-		values = append(values, stateBundleValueModel{
-			ID:            types.StringValue(value.ID),
-			Name:          types.StringValue(value.Name),
-			LocalizedName: helpers.StringOrNull(value.LocalizedName),
-			Description:   helpers.StringOrNull(value.Description),
-			IsResolved:    types.BoolValue(value.IsResolved),
-			Archived:      types.BoolValue(value.Archived),
-			Ordinal:       types.Int64Value(int64(value.Ordinal)),
-		})
-	}
-	m.Values = values
 }
