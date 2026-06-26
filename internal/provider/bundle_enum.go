@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	helpers "github.com/elcait/terraform-provider-youtrack/internal/helpers"
@@ -159,6 +160,18 @@ func (r *enumBundleResource) Update(ctx context.Context, req resource.UpdateRequ
 		}
 	}
 
+	unexpectedValues := unexpectedEnumValueNames(plan, updated)
+	if len(unexpectedValues) > 0 {
+		resp.Diagnostics.AddError(
+			errUpdatingEnumBundle,
+			fmt.Sprintf(
+				"YouTrack kept values that are not present in configuration: %s. This usually happens when values are still required by workflows or existing issues. Keep these values in configuration or set archived = true instead of removing them.",
+				strings.Join(unexpectedValues, ", "),
+			),
+		)
+		return
+	}
+
 	plan.fromAPIModel(updated)
 	helpers.SetStateAndCheckError(ctx, resp, &plan)
 }
@@ -281,6 +294,25 @@ func isRequiredCustomFieldWorkflowError(err error) bool {
 
 func normalizeBundleValueName(name string) string {
 	return strings.ToLower(strings.TrimSpace(name))
+}
+
+func unexpectedEnumValueNames(plan enumBundleResourceModel, updated *youtrack.EnumBundle) []string {
+	plannedByName := make(map[string]struct{}, len(plan.Values))
+	for _, value := range plan.Values {
+		plannedByName[normalizeBundleValueName(value.Name.ValueString())] = struct{}{}
+	}
+
+	unexpected := make([]string, 0)
+	for _, value := range updated.Values {
+		normalizedName := normalizeBundleValueName(value.Name)
+		if _, ok := plannedByName[normalizedName]; ok {
+			continue
+		}
+		unexpected = append(unexpected, value.Name)
+	}
+
+	sort.Strings(unexpected)
+	return unexpected
 }
 
 func (m *enumBundleResourceModel) fromAPIModel(apiModel *youtrack.EnumBundle) {

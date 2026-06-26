@@ -141,3 +141,27 @@ func TestEnumBundleToAPIModelPreservingExistingMatchesByName(t *testing.T) {
 	helpers.AssertFieldEqual(t, "SecondValueID", apiModel.Values[1].ID, "67-2")
 	helpers.AssertFieldEqual(t, "SecondValueArchived", apiModel.Values[1].Archived, true)
 }
+
+func TestUnexpectedEnumValueNames(t *testing.T) {
+	t.Parallel()
+
+	plan := enumBundleResourceModel{
+		Name: types.StringValue("Priority"),
+		Values: []enumBundleValueModel{
+			{Name: types.StringValue("Major")},
+			{Name: types.StringValue("Minor")},
+		},
+	}
+
+	updated := &youtrack.EnumBundle{
+		Values: []youtrack.EnumBundleElement{
+			{Name: "Major"},
+			{Name: "Minor"},
+			{Name: "Critical"},
+		},
+	}
+
+	unexpected := unexpectedEnumValueNames(plan, updated)
+	helpers.AssertFieldEqual(t, "UnexpectedLength", len(unexpected), 1)
+	helpers.AssertFieldEqual(t, "UnexpectedName", unexpected[0], "Critical")
+}

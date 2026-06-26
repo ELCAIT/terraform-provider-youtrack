@@ -133,3 +133,27 @@ func TestStateBundleToAPIModelPreservingExistingMatchesByName(t *testing.T) {
 	helpers.AssertFieldEqual(t, "SecondValueID", apiModel.Values[1].ID, "69-2")
 	helpers.AssertFieldEqual(t, "SecondValueArchived", apiModel.Values[1].Archived, true)
 }
+
+func TestUnexpectedStateValueNames(t *testing.T) {
+	t.Parallel()
+
+	plan := stateBundleResourceModel{
+		Name: types.StringValue(testStateBundleName),
+		Values: []stateBundleValueModel{
+			{Name: types.StringValue("Open")},
+			{Name: types.StringValue("Done")},
+		},
+	}
+
+	updated := &youtrack.StateBundle{
+		Values: []youtrack.StateBundleElement{
+			{Name: "Open"},
+			{Name: "Done"},
+			{Name: "Blocked"},
+		},
+	}
+
+	unexpected := unexpectedStateValueNames(plan, updated)
+	helpers.AssertFieldEqual(t, "UnexpectedLength", len(unexpected), 1)
+	helpers.AssertFieldEqual(t, "UnexpectedName", unexpected[0], "Blocked")
+}
