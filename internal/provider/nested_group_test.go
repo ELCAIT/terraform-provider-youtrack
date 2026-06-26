@@ -338,6 +338,7 @@ func assertResolvedMembership(t *testing.T, resolved *youtrack.NestedGroup, tt r
 
 	if resolved == nil {
 		t.Fatal("resolved result is nil")
+		return
 	}
 	if resolved.Name != testNestedGroupName {
 		t.Fatalf("resolved.Name = %q, want %q", resolved.Name, testNestedGroupName)
