@@ -144,8 +144,26 @@ func (r *stateBundleResource) Update(ctx context.Context, req resource.UpdateReq
 
 	updated, err := r.client.UpdateStateBundle(ctx, plan.ID.ValueString(), plan.toAPIModel())
 	if err != nil {
-		resp.Diagnostics.AddError(errUpdatingStateBundle, fmt.Sprintf(helpers.ErrCouldNotUpdateFmt, "state bundle", err))
-		return
+		if !isRequiredCustomFieldWorkflowError(err) {
+			resp.Diagnostics.AddError(errUpdatingStateBundle, fmt.Sprintf(helpers.ErrCouldNotUpdateFmt, "state bundle", err))
+			return
+		}
+
+		current, getErr := r.client.GetStateBundleByID(ctx, plan.ID.ValueString())
+		if getErr != nil {
+			resp.Diagnostics.AddError(
+				errUpdatingStateBundle,
+				fmt.Sprintf("Could not recover current state bundle for safe update: %v (original update error: %v)", getErr, err),
+			)
+			return
+		}
+
+		fallbackPayload := plan.toAPIModelPreservingExisting(current)
+		updated, err = r.client.UpdateStateBundle(ctx, plan.ID.ValueString(), fallbackPayload)
+		if err != nil {
+			resp.Diagnostics.AddError(errUpdatingStateBundle, fmt.Sprintf(helpers.ErrCouldNotUpdateFmt, "state bundle", err))
+			return
+		}
 	}
 
 	plan.fromAPIModel(updated)
@@ -175,21 +193,84 @@ func (r *stateBundleResource) ImportState(ctx context.Context, req resource.Impo
 func (m *stateBundleResourceModel) toAPIModel() youtrack.StateBundle {
 	values := make([]youtrack.StateBundleElement, 0, len(m.Values))
 	for _, value := range m.Values {
-		item := youtrack.StateBundleElement{
-			Name:       value.Name.ValueString(),
-			IsResolved: helpers.BoolFromOptional(value.IsResolved),
-			Archived:   helpers.BoolFromOptional(value.Archived),
-		}
-		item.ID = helpers.StringFromOptional(value.ID)
-		item.Description = helpers.StringFromOptional(value.Description)
-		item.LocalizedName = helpers.StringFromOptional(value.LocalizedName)
-		values = append(values, item)
+		values = append(values, value.toAPIModel())
 	}
 
 	return youtrack.StateBundle{
 		Name:   m.Name.ValueString(),
 		Values: values,
 	}
+}
+
+func (m *stateBundleResourceModel) toAPIModelPreservingExisting(current *youtrack.StateBundle) youtrack.StateBundle {
+	plannedByID := make(map[string]youtrack.StateBundleElement, len(m.Values))
+	plannedWithoutIDByName := make(map[string]youtrack.StateBundleElement, len(m.Values))
+	plannedWithoutID := make([]youtrack.StateBundleElement, 0, len(m.Values))
+
+	for _, value := range m.Values {
+		item := value.toAPIModel()
+		if item.ID == "" {
+			plannedWithoutIDByName[normalizeBundleValueName(item.Name)] = item
+			plannedWithoutID = append(plannedWithoutID, item)
+			continue
+		}
+		plannedByID[item.ID] = item
+	}
+
+	values := make([]youtrack.StateBundleElement, 0, len(current.Values)+len(plannedWithoutID))
+	for _, existing := range current.Values {
+		if planned, ok := plannedByID[existing.ID]; ok {
+			values = append(values, planned)
+			delete(plannedByID, existing.ID)
+			continue
+		}
+
+		normalizedExistingName := normalizeBundleValueName(existing.Name)
+		if planned, ok := plannedWithoutIDByName[normalizedExistingName]; ok {
+			values = append(values, planned)
+			delete(plannedWithoutIDByName, normalizedExistingName)
+			continue
+		}
+
+		values = append(values, existing)
+	}
+
+	for _, value := range m.Values {
+		plannedID := helpers.StringFromOptional(value.ID)
+		if plannedID == "" {
+			continue
+		}
+		planned, ok := plannedByID[plannedID]
+		if !ok {
+			continue
+		}
+		values = append(values, planned)
+	}
+	for _, planned := range plannedWithoutID {
+		normalizedName := normalizeBundleValueName(planned.Name)
+		if _, ok := plannedWithoutIDByName[normalizedName]; !ok {
+			continue
+		}
+		values = append(values, planned)
+		delete(plannedWithoutIDByName, normalizedName)
+	}
+
+	return youtrack.StateBundle{
+		Name:   m.Name.ValueString(),
+		Values: values,
+	}
+}
+
+func (m *stateBundleValueModel) toAPIModel() youtrack.StateBundleElement {
+	item := youtrack.StateBundleElement{
+		Name:       m.Name.ValueString(),
+		IsResolved: helpers.BoolFromOptional(m.IsResolved),
+		Archived:   helpers.BoolFromOptional(m.Archived),
+	}
+	item.ID = helpers.StringFromOptional(m.ID)
+	item.Description = helpers.StringFromOptional(m.Description)
+	item.LocalizedName = helpers.StringFromOptional(m.LocalizedName)
+	return item
 }
 
 func (m *stateBundleResourceModel) fromAPIModel(apiModel *youtrack.StateBundle) {

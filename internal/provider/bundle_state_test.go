@@ -60,3 +60,74 @@ func TestStateBundleModelFromAPIModel(t *testing.T) {
 	helpers.AssertFieldEqual(t, "ValuesLength", len(model.Values), 2)
 	helpers.AssertFieldEqual(t, "SecondValueOrdinal", model.Values[1].Ordinal.ValueInt64(), int64(1))
 }
+
+func TestStateBundleToAPIModelPreservingExisting(t *testing.T) {
+	t.Parallel()
+
+	model := stateBundleResourceModel{
+		Name: types.StringValue(testStateBundleName),
+		Values: []stateBundleValueModel{
+			{
+				ID:         types.StringValue("69-1"),
+				Name:       types.StringValue("In Progress"),
+				IsResolved: types.BoolValue(false),
+				Archived:   types.BoolValue(false),
+			},
+			{
+				Name:       types.StringValue("Ready for QA"),
+				IsResolved: types.BoolValue(false),
+				Archived:   types.BoolValue(false),
+			},
+		},
+	}
+
+	current := &youtrack.StateBundle{
+		ID:   "68-9",
+		Name: testStateBundleName,
+		Values: []youtrack.StateBundleElement{
+			{ID: "69-1", Name: "Open", IsResolved: false, Ordinal: 0},
+			{ID: "69-2", Name: "Done", IsResolved: true, Ordinal: 1},
+		},
+	}
+
+	apiModel := model.toAPIModelPreservingExisting(current)
+	helpers.AssertFieldEqual(t, "ValuesLength", len(apiModel.Values), 3)
+	helpers.AssertFieldEqual(t, "FirstValueName", apiModel.Values[0].Name, "In Progress")
+	helpers.AssertFieldEqual(t, "SecondValueName", apiModel.Values[1].Name, "Done")
+	helpers.AssertFieldEqual(t, "ThirdValueName", apiModel.Values[2].Name, "Ready for QA")
+}
+
+func TestStateBundleToAPIModelPreservingExistingMatchesByName(t *testing.T) {
+	t.Parallel()
+
+	model := stateBundleResourceModel{
+		Name: types.StringValue(testStateBundleName),
+		Values: []stateBundleValueModel{
+			{
+				Name:       types.StringValue("Open"),
+				IsResolved: types.BoolValue(false),
+				Archived:   types.BoolValue(false),
+			},
+			{
+				Name:       types.StringValue("Done"),
+				IsResolved: types.BoolValue(true),
+				Archived:   types.BoolValue(true),
+			},
+		},
+	}
+
+	current := &youtrack.StateBundle{
+		ID:   "68-9",
+		Name: testStateBundleName,
+		Values: []youtrack.StateBundleElement{
+			{ID: "69-1", Name: "Open", IsResolved: false, Ordinal: 0, Archived: false},
+			{ID: "69-2", Name: "Done", IsResolved: true, Ordinal: 1, Archived: false},
+		},
+	}
+
+	apiModel := model.toAPIModelPreservingExisting(current)
+	helpers.AssertFieldEqual(t, "ValuesLength", len(apiModel.Values), 2)
+	helpers.AssertFieldEqual(t, "FirstValueName", apiModel.Values[0].Name, "Open")
+	helpers.AssertFieldEqual(t, "SecondValueName", apiModel.Values[1].Name, "Done")
+	helpers.AssertFieldEqual(t, "SecondValueArchived", apiModel.Values[1].Archived, true)
+}

@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	helpers "github.com/elcait/terraform-provider-youtrack/internal/helpers"
 
@@ -136,8 +137,26 @@ func (r *enumBundleResource) Update(ctx context.Context, req resource.UpdateRequ
 
 	updated, err := r.client.UpdateEnumBundle(ctx, plan.ID.ValueString(), plan.toAPIModel())
 	if err != nil {
-		resp.Diagnostics.AddError(errUpdatingEnumBundle, fmt.Sprintf(helpers.ErrCouldNotUpdateFmt, "enum bundle", err))
-		return
+		if !isRequiredCustomFieldWorkflowError(err) {
+			resp.Diagnostics.AddError(errUpdatingEnumBundle, fmt.Sprintf(helpers.ErrCouldNotUpdateFmt, "enum bundle", err))
+			return
+		}
+
+		current, getErr := r.client.GetEnumBundleByID(ctx, plan.ID.ValueString())
+		if getErr != nil {
+			resp.Diagnostics.AddError(
+				errUpdatingEnumBundle,
+				fmt.Sprintf("Could not recover current enum bundle for safe update: %v (original update error: %v)", getErr, err),
+			)
+			return
+		}
+
+		fallbackPayload := plan.toAPIModelPreservingExisting(current)
+		updated, err = r.client.UpdateEnumBundle(ctx, plan.ID.ValueString(), fallbackPayload)
+		if err != nil {
+			resp.Diagnostics.AddError(errUpdatingEnumBundle, fmt.Sprintf(helpers.ErrCouldNotUpdateFmt, "enum bundle", err))
+			return
+		}
 	}
 
 	plan.fromAPIModel(updated)
@@ -167,20 +186,100 @@ func (r *enumBundleResource) ImportState(ctx context.Context, req resource.Impor
 func (m *enumBundleResourceModel) toAPIModel() youtrack.EnumBundle {
 	values := make([]youtrack.EnumBundleElement, 0, len(m.Values))
 	for _, value := range m.Values {
-		item := youtrack.EnumBundleElement{
-			Name:     value.Name.ValueString(),
-			Archived: helpers.BoolFromOptional(value.Archived),
-		}
-		item.ID = helpers.StringFromOptional(value.ID)
-		item.Description = helpers.StringFromOptional(value.Description)
-		item.LocalizedName = helpers.StringFromOptional(value.LocalizedName)
-		values = append(values, item)
+		values = append(values, value.toAPIModel())
 	}
 
 	return youtrack.EnumBundle{
 		Name:   m.Name.ValueString(),
 		Values: values,
 	}
+}
+
+func (m *enumBundleResourceModel) toAPIModelPreservingExisting(current *youtrack.EnumBundle) youtrack.EnumBundle {
+	plannedByID := make(map[string]youtrack.EnumBundleElement, len(m.Values))
+	plannedWithoutIDByName := make(map[string]youtrack.EnumBundleElement, len(m.Values))
+	plannedWithoutID := make([]youtrack.EnumBundleElement, 0, len(m.Values))
+
+	for _, value := range m.Values {
+		item := value.toAPIModel()
+		if item.ID == "" {
+			plannedWithoutIDByName[normalizeBundleValueName(item.Name)] = item
+			plannedWithoutID = append(plannedWithoutID, item)
+			continue
+		}
+		plannedByID[item.ID] = item
+	}
+
+	values := make([]youtrack.EnumBundleElement, 0, len(current.Values)+len(plannedWithoutID))
+	for _, existing := range current.Values {
+		if planned, ok := plannedByID[existing.ID]; ok {
+			values = append(values, planned)
+			delete(plannedByID, existing.ID)
+			continue
+		}
+
+		normalizedExistingName := normalizeBundleValueName(existing.Name)
+		if planned, ok := plannedWithoutIDByName[normalizedExistingName]; ok {
+			values = append(values, planned)
+			delete(plannedWithoutIDByName, normalizedExistingName)
+			continue
+		}
+
+		values = append(values, existing)
+	}
+
+	for _, value := range m.Values {
+		plannedID := helpers.StringFromOptional(value.ID)
+		if plannedID == "" {
+			continue
+		}
+		planned, ok := plannedByID[plannedID]
+		if !ok {
+			continue
+		}
+		values = append(values, planned)
+	}
+	for _, planned := range plannedWithoutID {
+		normalizedName := normalizeBundleValueName(planned.Name)
+		if _, ok := plannedWithoutIDByName[normalizedName]; !ok {
+			continue
+		}
+		values = append(values, planned)
+		delete(plannedWithoutIDByName, normalizedName)
+	}
+
+	return youtrack.EnumBundle{
+		Name:   m.Name.ValueString(),
+		Values: values,
+	}
+}
+
+func (m *enumBundleValueModel) toAPIModel() youtrack.EnumBundleElement {
+	item := youtrack.EnumBundleElement{
+		Name:     m.Name.ValueString(),
+		Archived: helpers.BoolFromOptional(m.Archived),
+	}
+	item.ID = helpers.StringFromOptional(m.ID)
+	item.Description = helpers.StringFromOptional(m.Description)
+	item.LocalizedName = helpers.StringFromOptional(m.LocalizedName)
+	return item
+}
+
+func isRequiredCustomFieldWorkflowError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errMsg := strings.ToLower(err.Error())
+	hasRule := strings.Contains(errMsg, "@jetbrains/required-custom-fields-feature")
+	hasFieldRequired := strings.Contains(errMsg, "field required") || strings.Contains(errMsg, " is required")
+	hasWorkflowType := strings.Contains(errMsg, "\"error_type\":\"workflow\"")
+
+	return hasRule || (hasFieldRequired && hasWorkflowType)
+}
+
+func normalizeBundleValueName(name string) string {
+	return strings.ToLower(strings.TrimSpace(name))
 }
 
 func (m *enumBundleResourceModel) fromAPIModel(apiModel *youtrack.EnumBundle) {
