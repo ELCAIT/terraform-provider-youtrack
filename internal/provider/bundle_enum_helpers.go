@@ -24,80 +24,27 @@ func (m *enumBundleResourceModel) toAPIModel() youtrack.EnumBundle {
 }
 
 func (m *enumBundleResourceModel) toAPIModelPreservingExisting(current *youtrack.EnumBundle) youtrack.EnumBundle {
-	plannedByID := make(map[string]youtrack.EnumBundleElement, len(m.Values))
-	plannedWithoutIDByName := make(map[string]youtrack.EnumBundleElement, len(m.Values))
-	plannedWithoutID := make([]youtrack.EnumBundleElement, 0, len(m.Values))
-
-	collectPlannedEnumValues(m.Values, plannedByID, plannedWithoutIDByName, &plannedWithoutID)
-
-	values := make([]youtrack.EnumBundleElement, 0, len(current.Values)+len(plannedWithoutID))
-	for _, existing := range current.Values {
-		if planned, ok := plannedByID[existing.ID]; ok {
-			values = append(values, planned)
-			delete(plannedByID, existing.ID)
-			continue
-		}
-
-		normalizedExistingName := normalizeBundleValueName(existing.Name)
-		if planned, ok := plannedWithoutIDByName[normalizedExistingName]; ok {
-			planned.ID = existing.ID
-			values = append(values, planned)
-			delete(plannedWithoutIDByName, normalizedExistingName)
-			continue
-		}
-
-		values = append(values, existing)
-	}
-
-	appendRemainingPlannedEnumValuesByID(m.Values, plannedByID, &values)
-
-	for _, planned := range plannedWithoutID {
-		normalizedName := normalizeBundleValueName(planned.Name)
-		if _, ok := plannedWithoutIDByName[normalizedName]; !ok {
-			continue
-		}
-		values = append(values, planned)
-		delete(plannedWithoutIDByName, normalizedName)
-	}
+	values := mergeBundleValuesPreservingExisting(m.Values, current.Values, bundleValueMergeOps[enumBundleValueModel, youtrack.EnumBundleElement]{
+		toAPI: func(value enumBundleValueModel) youtrack.EnumBundleElement {
+			return value.toAPIModel()
+		},
+		modelID: func(value enumBundleValueModel) string {
+			return helpers.StringFromOptional(value.ID)
+		},
+		apiID: func(item youtrack.EnumBundleElement) string {
+			return item.ID
+		},
+		setAPIID: func(item *youtrack.EnumBundleElement, id string) {
+			item.ID = id
+		},
+		apiName: func(item youtrack.EnumBundleElement) string {
+			return item.Name
+		},
+	})
 
 	return youtrack.EnumBundle{
 		Name:   m.Name.ValueString(),
 		Values: values,
-	}
-}
-
-func collectPlannedEnumValues(
-	modelValues []enumBundleValueModel,
-	plannedByID map[string]youtrack.EnumBundleElement,
-	plannedWithoutIDByName map[string]youtrack.EnumBundleElement,
-	plannedWithoutID *[]youtrack.EnumBundleElement,
-) {
-	for _, value := range modelValues {
-		item := value.toAPIModel()
-		if item.ID == "" {
-			plannedWithoutIDByName[normalizeBundleValueName(item.Name)] = item
-			*plannedWithoutID = append(*plannedWithoutID, item)
-			continue
-		}
-		plannedByID[item.ID] = item
-	}
-}
-
-func appendRemainingPlannedEnumValuesByID(
-	modelValues []enumBundleValueModel,
-	plannedByID map[string]youtrack.EnumBundleElement,
-	values *[]youtrack.EnumBundleElement,
-) {
-	for _, value := range modelValues {
-		plannedID := helpers.StringFromOptional(value.ID)
-		if plannedID == "" {
-			continue
-		}
-		planned, ok := plannedByID[plannedID]
-		if !ok {
-			continue
-		}
-		*values = append(*values, planned)
 	}
 }
 

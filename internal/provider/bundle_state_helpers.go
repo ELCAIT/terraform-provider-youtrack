@@ -21,80 +21,27 @@ func (m *stateBundleResourceModel) toAPIModel() youtrack.StateBundle {
 }
 
 func (m *stateBundleResourceModel) toAPIModelPreservingExisting(current *youtrack.StateBundle) youtrack.StateBundle {
-	plannedByID := make(map[string]youtrack.StateBundleElement, len(m.Values))
-	plannedWithoutIDByName := make(map[string]youtrack.StateBundleElement, len(m.Values))
-	plannedWithoutID := make([]youtrack.StateBundleElement, 0, len(m.Values))
-
-	collectPlannedStateValues(m.Values, plannedByID, plannedWithoutIDByName, &plannedWithoutID)
-
-	values := make([]youtrack.StateBundleElement, 0, len(current.Values)+len(plannedWithoutID))
-	for _, existing := range current.Values {
-		if planned, ok := plannedByID[existing.ID]; ok {
-			values = append(values, planned)
-			delete(plannedByID, existing.ID)
-			continue
-		}
-
-		normalizedExistingName := normalizeBundleValueName(existing.Name)
-		if planned, ok := plannedWithoutIDByName[normalizedExistingName]; ok {
-			planned.ID = existing.ID
-			values = append(values, planned)
-			delete(plannedWithoutIDByName, normalizedExistingName)
-			continue
-		}
-
-		values = append(values, existing)
-	}
-
-	appendRemainingPlannedStateValuesByID(m.Values, plannedByID, &values)
-
-	for _, planned := range plannedWithoutID {
-		normalizedName := normalizeBundleValueName(planned.Name)
-		if _, ok := plannedWithoutIDByName[normalizedName]; !ok {
-			continue
-		}
-		values = append(values, planned)
-		delete(plannedWithoutIDByName, normalizedName)
-	}
+	values := mergeBundleValuesPreservingExisting(m.Values, current.Values, bundleValueMergeOps[stateBundleValueModel, youtrack.StateBundleElement]{
+		toAPI: func(value stateBundleValueModel) youtrack.StateBundleElement {
+			return value.toAPIModel()
+		},
+		modelID: func(value stateBundleValueModel) string {
+			return helpers.StringFromOptional(value.ID)
+		},
+		apiID: func(item youtrack.StateBundleElement) string {
+			return item.ID
+		},
+		setAPIID: func(item *youtrack.StateBundleElement, id string) {
+			item.ID = id
+		},
+		apiName: func(item youtrack.StateBundleElement) string {
+			return item.Name
+		},
+	})
 
 	return youtrack.StateBundle{
 		Name:   m.Name.ValueString(),
 		Values: values,
-	}
-}
-
-func collectPlannedStateValues(
-	modelValues []stateBundleValueModel,
-	plannedByID map[string]youtrack.StateBundleElement,
-	plannedWithoutIDByName map[string]youtrack.StateBundleElement,
-	plannedWithoutID *[]youtrack.StateBundleElement,
-) {
-	for _, value := range modelValues {
-		item := value.toAPIModel()
-		if item.ID == "" {
-			plannedWithoutIDByName[normalizeBundleValueName(item.Name)] = item
-			*plannedWithoutID = append(*plannedWithoutID, item)
-			continue
-		}
-		plannedByID[item.ID] = item
-	}
-}
-
-func appendRemainingPlannedStateValuesByID(
-	modelValues []stateBundleValueModel,
-	plannedByID map[string]youtrack.StateBundleElement,
-	values *[]youtrack.StateBundleElement,
-) {
-	for _, value := range modelValues {
-		plannedID := helpers.StringFromOptional(value.ID)
-		if plannedID == "" {
-			continue
-		}
-		planned, ok := plannedByID[plannedID]
-		if !ok {
-			continue
-		}
-		*values = append(*values, planned)
 	}
 }
 
