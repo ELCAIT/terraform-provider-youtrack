@@ -2,6 +2,7 @@ package settings
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	youtrack "github.com/elcait/youtrack-api-client/client"
@@ -153,6 +154,43 @@ func TestUpdateGlobalTimeTrackingSettingsModelWithTimestamp(t *testing.T) {
 
 	if model.WorkTimeSettings.MinutesADay.ValueInt64() != testMinutesADay {
 		t.Fatalf(msgUnexpectedMinutesADay, model.WorkTimeSettings.MinutesADay.ValueInt64(), testMinutesADay)
+	}
+}
+
+func TestIsTransientRemovedWorkItemTypeListError(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "matches removed work item type error",
+			err:  errors.New("failed to list work item types: unexpected status code 500: {\"error_description\":\"WorkItemType[178-152] was removed.\"}"),
+			want: true,
+		},
+		{
+			name: "does not match other server error",
+			err:  errors.New("failed to list work item types: unexpected status code 500: {\"error\":\"server_error\"}"),
+			want: false,
+		},
+		{
+			name: "nil error",
+			err:  nil,
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := isTransientRemovedWorkItemTypeListError(tt.err)
+			if got != tt.want {
+				t.Fatalf("isTransientRemovedWorkItemTypeListError() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 

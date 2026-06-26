@@ -5,6 +5,9 @@ IMPROVEMENTS:
 
 BUG FIXES:
 - Fix bundle management for custom fields, ensuring that the provider correctly handles the creation, update, and deletion of bundle values without causing errors or inconsistencies in the YouTrack instance.
+- Fix time tracking settings acceptance tests
+- Fix global time tracking refresh drift by always reading work item types from the dedicated endpoint before writing Terraform state.
+- Fix transient YouTrack `WorkItemType[...] was removed` server errors by retrying work item type list reads during global time tracking read/sync flows.
 
 ## 1.0.5
 FEATURES:

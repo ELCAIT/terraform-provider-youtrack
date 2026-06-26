@@ -19,6 +19,7 @@ import (
 
 const (
 	errUnableToReadTimeTracking     = "Unable to Read YouTrack Global Time Tracking Settings"
+	errUnableToReadWorkItemTypes    = "Unable to Read YouTrack Work Item Types"
 	errUpdatingWorkTimeSettings     = "Error updating work time settings"
 	errConvertingTimeTracking       = "Error converting time tracking settings"
 	errConvertingWorkDays           = "Failed to convert work_days list"
@@ -30,6 +31,8 @@ const (
 	// is soft-deleted. The provider filters these out so they never appear in state.
 	workItemTypeBeingRemovedSuffix = " (being removed)"
 	defaultWorkMinutesADay         = 480
+	workItemTypesReadMaxAttempts   = 8
+	workItemTypesReadRetryDelay    = 500 * time.Millisecond
 )
 
 // computedWhenUnconfiguredSetModifier marks a set attribute as (known after apply)
@@ -366,7 +369,51 @@ func (r *globalTimeTrackingSettingsResource) getGlobalTimeTrackingSettingsAndHan
 		return youtrack.GlobalTimeTrackingSettings{}, false
 	}
 
+	workItemTypes, err := r.listWorkItemTypesWithRetry(ctx)
+	if err != nil {
+		diagnostics.AddError(
+			errUnableToReadWorkItemTypes,
+			err.Error(),
+		)
+		return youtrack.GlobalTimeTrackingSettings{}, false
+	}
+
+	settings.WorkItemTypes = workItemTypes
+
 	return settings, true
+}
+
+func (r *globalTimeTrackingSettingsResource) listWorkItemTypesWithRetry(ctx context.Context) ([]youtrack.WorkItemType, error) {
+	var lastErr error
+
+	for attempt := 1; attempt <= workItemTypesReadMaxAttempts; attempt++ {
+		workItemTypes, err := r.client.ListWorkItemTypes(ctx)
+		if err == nil {
+			return workItemTypes, nil
+		}
+
+		lastErr = err
+		if !isTransientRemovedWorkItemTypeListError(err) || attempt == workItemTypesReadMaxAttempts {
+			break
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(workItemTypesReadRetryDelay):
+		}
+	}
+
+	return nil, lastErr
+}
+
+func isTransientRemovedWorkItemTypeListError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errMsg := strings.ToLower(err.Error())
+	return strings.Contains(errMsg, "workitemtype[") && strings.Contains(errMsg, "was removed")
 }
 
 // updateWorkTimeSettingsAndHandleError updates work time settings via API and handles errors.
@@ -613,7 +660,7 @@ func (r *globalTimeTrackingSettingsResource) syncWorkItemTypesIfConfigured(ctx c
 		return false
 	}
 
-	currentTypes, err := r.client.ListWorkItemTypes(ctx)
+	currentTypes, err := r.listWorkItemTypesWithRetry(ctx)
 	if err != nil {
 		diagnostics.AddError(errManagingWorkItemTypes, err.Error())
 		return false

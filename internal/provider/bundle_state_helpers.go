@@ -25,15 +25,7 @@ func (m *stateBundleResourceModel) toAPIModelPreservingExisting(current *youtrac
 	plannedWithoutIDByName := make(map[string]youtrack.StateBundleElement, len(m.Values))
 	plannedWithoutID := make([]youtrack.StateBundleElement, 0, len(m.Values))
 
-	for _, value := range m.Values {
-		item := value.toAPIModel()
-		if item.ID == "" {
-			plannedWithoutIDByName[normalizeBundleValueName(item.Name)] = item
-			plannedWithoutID = append(plannedWithoutID, item)
-			continue
-		}
-		plannedByID[item.ID] = item
-	}
+	collectPlannedStateValues(m.Values, plannedByID, plannedWithoutIDByName, &plannedWithoutID)
 
 	values := make([]youtrack.StateBundleElement, 0, len(current.Values)+len(plannedWithoutID))
 	for _, existing := range current.Values {
@@ -54,17 +46,8 @@ func (m *stateBundleResourceModel) toAPIModelPreservingExisting(current *youtrac
 		values = append(values, existing)
 	}
 
-	for _, value := range m.Values {
-		plannedID := helpers.StringFromOptional(value.ID)
-		if plannedID == "" {
-			continue
-		}
-		planned, ok := plannedByID[plannedID]
-		if !ok {
-			continue
-		}
-		values = append(values, planned)
-	}
+	appendRemainingPlannedStateValuesByID(m.Values, plannedByID, &values)
+
 	for _, planned := range plannedWithoutID {
 		normalizedName := normalizeBundleValueName(planned.Name)
 		if _, ok := plannedWithoutIDByName[normalizedName]; !ok {
@@ -77,6 +60,41 @@ func (m *stateBundleResourceModel) toAPIModelPreservingExisting(current *youtrac
 	return youtrack.StateBundle{
 		Name:   m.Name.ValueString(),
 		Values: values,
+	}
+}
+
+func collectPlannedStateValues(
+	modelValues []stateBundleValueModel,
+	plannedByID map[string]youtrack.StateBundleElement,
+	plannedWithoutIDByName map[string]youtrack.StateBundleElement,
+	plannedWithoutID *[]youtrack.StateBundleElement,
+) {
+	for _, value := range modelValues {
+		item := value.toAPIModel()
+		if item.ID == "" {
+			plannedWithoutIDByName[normalizeBundleValueName(item.Name)] = item
+			*plannedWithoutID = append(*plannedWithoutID, item)
+			continue
+		}
+		plannedByID[item.ID] = item
+	}
+}
+
+func appendRemainingPlannedStateValuesByID(
+	modelValues []stateBundleValueModel,
+	plannedByID map[string]youtrack.StateBundleElement,
+	values *[]youtrack.StateBundleElement,
+) {
+	for _, value := range modelValues {
+		plannedID := helpers.StringFromOptional(value.ID)
+		if plannedID == "" {
+			continue
+		}
+		planned, ok := plannedByID[plannedID]
+		if !ok {
+			continue
+		}
+		*values = append(*values, planned)
 	}
 }
 
