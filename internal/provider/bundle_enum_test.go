@@ -136,6 +136,8 @@ func TestEnumBundleToAPIModelPreservingExistingMatchesByName(t *testing.T) {
 	apiModel := model.toAPIModelPreservingExisting(current)
 	helpers.AssertFieldEqual(t, "ValuesLength", len(apiModel.Values), 2)
 	helpers.AssertFieldEqual(t, "FirstValueName", apiModel.Values[0].Name, "Major")
+	helpers.AssertFieldEqual(t, "FirstValueID", apiModel.Values[0].ID, "67-1")
 	helpers.AssertFieldEqual(t, "SecondValueName", apiModel.Values[1].Name, "Minor")
+	helpers.AssertFieldEqual(t, "SecondValueID", apiModel.Values[1].ID, "67-2")
 	helpers.AssertFieldEqual(t, "SecondValueArchived", apiModel.Values[1].Archived, true)
 }

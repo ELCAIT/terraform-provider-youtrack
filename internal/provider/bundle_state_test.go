@@ -128,6 +128,8 @@ func TestStateBundleToAPIModelPreservingExistingMatchesByName(t *testing.T) {
 	apiModel := model.toAPIModelPreservingExisting(current)
 	helpers.AssertFieldEqual(t, "ValuesLength", len(apiModel.Values), 2)
 	helpers.AssertFieldEqual(t, "FirstValueName", apiModel.Values[0].Name, "Open")
+	helpers.AssertFieldEqual(t, "FirstValueID", apiModel.Values[0].ID, "69-1")
 	helpers.AssertFieldEqual(t, "SecondValueName", apiModel.Values[1].Name, "Done")
+	helpers.AssertFieldEqual(t, "SecondValueID", apiModel.Values[1].ID, "69-2")
 	helpers.AssertFieldEqual(t, "SecondValueArchived", apiModel.Values[1].Archived, true)
 }

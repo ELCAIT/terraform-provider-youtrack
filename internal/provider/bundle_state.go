@@ -227,6 +227,7 @@ func (m *stateBundleResourceModel) toAPIModelPreservingExisting(current *youtrac
 
 		normalizedExistingName := normalizeBundleValueName(existing.Name)
 		if planned, ok := plannedWithoutIDByName[normalizedExistingName]; ok {
+			planned.ID = existing.ID
 			values = append(values, planned)
 			delete(plannedWithoutIDByName, normalizedExistingName)
 			continue
