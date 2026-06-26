@@ -1,3 +1,11 @@
+## 1.0.6
+FEATURES:
+
+IMPROVEMENTS:
+
+BUG FIXES:
+- Fix bundle management for custom fields, ensuring that the provider correctly handles the creation, update, and deletion of bundle values without causing errors or inconsistencies in the YouTrack instance.
+
 ## 1.0.5
 FEATURES:
 
@@ -5,7 +13,7 @@ IMPROVEMENTS:
 - Refactor role management to support implied and dependent permissions, allowing for more flexible and granular permission assignments.
 
 BUG FIXES:
-- Fix role dritf between UI and terraform manifest, ensuring that the state of roles in YouTrack matches the desired configuration defined in Terraform.
+- Fix role drift between UI and terraform manifest, ensuring that the state of roles in YouTrack matches the desired configuration defined in Terraform.
 
 ## 1.0.5
 FEATURES:
