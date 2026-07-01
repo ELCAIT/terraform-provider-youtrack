@@ -9,7 +9,7 @@
 
 services:
   youtrack:
-    image: "jetbrains/youtrack:2026.2.16593"
+    image: "jetbrains/youtrack:2026.2.17012"
     ports:
       - "8080:8080"
     environment:
