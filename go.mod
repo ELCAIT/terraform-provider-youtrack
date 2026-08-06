@@ -9,6 +9,11 @@ require (
 	github.com/hashicorp/terraform-plugin-testing v1.16.0
 )
 
+// TODO: remove once youtrack-api-client v1.1.6+ (with the auth-module-refresh
+// fix for github.com/ELCAIT/terraform-provider-youtrack/issues/37 and /39)
+// is tagged and published; then bump the require above instead.
+replace github.com/elcait/youtrack-api-client => ../youtrack-api-client
+
 require (
 	github.com/ProtonMail/go-crypto v1.4.1 // indirect
 	github.com/agext/levenshtein v1.2.3 // indirect
