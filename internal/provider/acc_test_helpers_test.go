@@ -27,6 +27,10 @@ const (
 	envOAuth2TokenURL     = "YOUTRACK_OAUTH2_TOKEN_URL" //nolint:gosec // env var name, not a credential
 	envOAuth2UserInfoURL  = "YOUTRACK_OAUTH2_USER_INFO_URL"
 	envOAuth2UserIDPath   = "YOUTRACK_OAUTH2_USER_ID_PATH"
+
+	envAzureClientID     = "YOUTRACK_AZURE_CLIENT_ID"
+	envAzureClientSecret = "YOUTRACK_AZURE_CLIENT_SECRET" //nolint:gosec // env var name, not a credential
+	envAzureTenant       = "YOUTRACK_AZURE_TENANT"
 )
 
 func testProviderFactories() map[string]func() (tfprotov6.ProviderServer, error) {

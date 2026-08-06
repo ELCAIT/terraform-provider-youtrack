@@ -30,5 +30,12 @@ export YOUTRACK_OAUTH2_TOKEN_URL="$YOUTRACK_OAUTH2_SERVER_URL/token"
 export YOUTRACK_OAUTH2_USER_INFO_URL="$YOUTRACK_OAUTH2_SERVER_URL/userinfo"
 export YOUTRACK_OAUTH2_USER_ID_PATH="sub"
 
+# azure auth module acceptance tests: Hub does not validate these against a
+# real Entra ID tenant for basic CRUD, so any plausible-shaped values work.
+# YOUTRACK_AZURE_TENANT is the directory (tenant) ID, a GUID, not a domain.
+export YOUTRACK_AZURE_CLIENT_ID=...
+export YOUTRACK_AZURE_CLIENT_SECRET=...
+export YOUTRACK_AZURE_TENANT="11111111-1111-1111-1111-111111111111"
+
 # install golangci-lint in go Path
 curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.12.2

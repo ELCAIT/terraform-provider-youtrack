@@ -1,3 +1,13 @@
+## 1.0.8
+FEATURES:
+- Add `youtrack_auth_module_azure` resource for managing Hub Microsoft Entra ID (formerly Azure AD) authentication modules.
+
+IMPROVEMENTS:
+
+BUG FIXES:
+- Fix `youtrack_auth_module_oauth2` producing "provider produced inconsistent result after apply" when `allowed_create_new_users` is explicitly set to `false` on create: Hub always creates OAuth2 auth modules with it set to `true` regardless of the request, so the provider now corrects it with a follow-up update. The same fix applies to the new `youtrack_auth_module_azure` resource.
+- Fix `youtrack_auth_module_oauth2` never actually clearing optional attributes (e.g. `extension_grant_type`, `user_picture_id_path`, `user_email_verified_path`) back to null once set outside of Terraform: the underlying API client was silently omitting cleared fields from the update request instead of sending an explicit clear.
+
 ## 1.0.7
 FEATURES:
 

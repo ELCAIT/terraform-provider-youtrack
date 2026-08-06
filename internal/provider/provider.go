@@ -153,6 +153,7 @@ func (p *youtrackProvider) Configure(ctx context.Context, req provider.Configure
 // Resources defines the resources implemented in the provider.
 func (p *youtrackProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
+		NewAzureAuthModuleResource,
 		NewCustomFieldResource,
 		NewEnumBundleResource,
 		settings.NewAppearanceSettingsResource,
