@@ -214,6 +214,15 @@ func StringOrEmpty(s string) types.String {
 	return types.StringValue(s)
 }
 
+// Int64OrNull returns a null types.Int64 when the value is zero or negative, otherwise a types.Int64Value.
+func Int64OrNull(v int) types.Int64 {
+	if v <= 0 {
+		return types.Int64Null()
+	}
+
+	return types.Int64Value(int64(v))
+}
+
 // HolderTypeOrDefault returns the trimmed value if non-empty, otherwise the fallback.
 func HolderTypeOrDefault(value, fallback string) string {
 	trimmed := strings.TrimSpace(value)

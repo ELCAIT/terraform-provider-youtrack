@@ -127,17 +127,8 @@ func (m *oauth2AuthModuleResourceModel) fromAPIModel(api *youtrack.OAuth2AuthMod
 	m.IconURL = helpers.StringOrNull(api.IconURL)
 	m.ExtensionGrantType = helpers.StringOrNull(api.ExtensionGrantType)
 
-	if api.ConnectionTimeout > 0 {
-		m.ConnectionTimeout = types.Int64Value(int64(api.ConnectionTimeout))
-	} else {
-		m.ConnectionTimeout = types.Int64Null()
-	}
-
-	if api.ReadTimeout > 0 {
-		m.ReadTimeout = types.Int64Value(int64(api.ReadTimeout))
-	} else {
-		m.ReadTimeout = types.Int64Null()
-	}
+	m.ConnectionTimeout = helpers.Int64OrNull(api.ConnectionTimeout)
+	m.ReadTimeout = helpers.Int64OrNull(api.ReadTimeout)
 
 	m.SyncInterval = helpers.StringOrNull(api.SyncInterval)
 	m.IsDefault = types.BoolValue(api.IsDefault)
