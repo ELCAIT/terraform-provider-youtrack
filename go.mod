@@ -9,6 +9,13 @@ require (
 	github.com/hashicorp/terraform-plugin-testing v1.16.0
 )
 
+// TEMPORARY local-dev shim: youtrack-api-client's Hub services support
+// (CreateService/ListServices/GetServiceByID/UpdateService/DeleteService,
+// added on its feat-add-support-for-hub-services branch) has not been
+// released yet. Remove this and bump the require above to a real tagged
+// version once that PR is merged and released.
+replace github.com/elcait/youtrack-api-client => /home/flos/sources/github/elcait/youtrack-api-client
+
 require (
 	github.com/ProtonMail/go-crypto v1.4.1 // indirect
 	github.com/agext/levenshtein v1.2.3 // indirect

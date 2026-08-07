@@ -171,6 +171,7 @@ func (p *youtrackProvider) Resources(_ context.Context) []func() resource.Resour
 		NewProjectResource,
 		NewProjectCustomFieldResource,
 		NewProjectTimeTrackingSettingsResource,
+		NewServiceResource,
 		NewStateBundleResource,
 		settings.NewSystemSettingsResource,
 	}
