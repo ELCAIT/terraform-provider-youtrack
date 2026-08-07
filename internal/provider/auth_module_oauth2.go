@@ -221,6 +221,23 @@ func (r *oauth2AuthModuleResource) Create(ctx context.Context, req resource.Crea
 		return
 	}
 
+	// Hub always creates OAuth2 auth modules with allowedCreateNewUsers=true,
+	// regardless of what was requested; correct it with a follow-up update
+	// when the plan asked for something else, otherwise Terraform reports
+	// "provider produced inconsistent result after apply" (issue #37).
+	if created.AllowedCreateNewUsers != apiModule.AllowedCreateNewUsers {
+		created.AllowedCreateNewUsers = apiModule.AllowedCreateNewUsers
+
+		created, err = r.client.UpdateOAuth2AuthModule(ctx, created.ID, *created)
+		if err != nil {
+			resp.Diagnostics.AddError(
+				errCreatingOAuth2Module,
+				fmt.Sprintf("Could not enforce allowed_create_new_users after create: %v", err),
+			)
+			return
+		}
+	}
+
 	// Preserve client_secret from plan since the API does not return it.
 	plan.fromAPIModel(created)
 	plan.ClientSecret = types.StringValue(apiModule.ClientSecret)
