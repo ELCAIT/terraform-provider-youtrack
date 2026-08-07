@@ -3,16 +3,11 @@ module github.com/elcait/terraform-provider-youtrack
 go 1.26.5
 
 require (
-	github.com/elcait/youtrack-api-client v1.1.5
+	github.com/elcait/youtrack-api-client v1.1.6
 	github.com/hashicorp/terraform-plugin-framework v1.19.0
 	github.com/hashicorp/terraform-plugin-go v0.31.0
 	github.com/hashicorp/terraform-plugin-testing v1.16.0
 )
-
-// TODO: remove once youtrack-api-client v1.1.6+ (with the auth-module-refresh
-// fix for github.com/ELCAIT/terraform-provider-youtrack/issues/37 and /39)
-// is tagged and published; then bump the require above instead.
-replace github.com/elcait/youtrack-api-client => ../youtrack-api-client
 
 require (
 	github.com/ProtonMail/go-crypto v1.4.1 // indirect
