@@ -193,15 +193,22 @@ func deleteWorkItemTypesBefore(t *testing.T, client *youtrack.Client, types []yo
 		}
 	}
 
+	waitForOriginalWorkItemTypesGone(t, client, originalIDs)
+}
+
+// waitForOriginalWorkItemTypesGone polls until none of the given work item type IDs remain,
+// tolerating the transient "was removed" error YouTrack returns right after deletion.
+func waitForOriginalWorkItemTypesGone(t *testing.T, client *youtrack.Client, originalIDs map[string]struct{}) {
+	t.Helper()
 	deadline := time.Now().Add(30 * time.Second)
 	for {
 		currentTypes, err := client.ListWorkItemTypes(context.Background())
 		if err != nil {
-			if isTransientRemovedWorkItemTypeListErrorForTest(err) && time.Now().Before(deadline) {
-				time.Sleep(500 * time.Millisecond)
-				continue
+			if !isTransientRemovedWorkItemTypeListErrorForTest(err) || !time.Now().Before(deadline) {
+				t.Fatalf("failed to list work item types while waiting for cleanup: %v", err)
 			}
-			t.Fatalf("failed to list work item types while waiting for cleanup: %v", err)
+			time.Sleep(500 * time.Millisecond)
+			continue
 		}
 
 		if countRemainingOriginal(currentTypes, originalIDs) == 0 {

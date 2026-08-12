@@ -683,13 +683,29 @@ func (r *globalTimeTrackingSettingsResource) syncWorkItemTypesIfConfigured(ctx c
 
 // waitForWorkItemTypeDeletions polls until deleted work item types no longer appear in
 // the list, guarding against the API briefly returning stale data right after a delete.
-func (r *globalTimeTrackingSettingsResource) waitForWorkItemTypeDeletions(ctx context.Context, changes []workItemTypeChange, diagnostics *diag.Diagnostics) bool {
+// deletedWorkItemTypeIDs collects the IDs slated for deletion across the given changes.
+func deletedWorkItemTypeIDs(changes []workItemTypeChange) map[string]struct{} {
 	deletedIDs := make(map[string]struct{})
 	for _, c := range changes {
 		if c.deleteID != "" {
 			deletedIDs[c.deleteID] = struct{}{}
 		}
 	}
+	return deletedIDs
+}
+
+// anyWorkItemTypeIDPresent reports whether any of the given types has an ID in ids.
+func anyWorkItemTypeIDPresent(currentTypes []youtrack.WorkItemType, ids map[string]struct{}) bool {
+	for _, ct := range currentTypes {
+		if _, present := ids[ct.ID]; present {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *globalTimeTrackingSettingsResource) waitForWorkItemTypeDeletions(ctx context.Context, changes []workItemTypeChange, diagnostics *diag.Diagnostics) bool {
+	deletedIDs := deletedWorkItemTypeIDs(changes)
 	if len(deletedIDs) == 0 {
 		return true
 	}
@@ -701,14 +717,7 @@ func (r *globalTimeTrackingSettingsResource) waitForWorkItemTypeDeletions(ctx co
 			return false
 		}
 
-		stillPresent := false
-		for _, ct := range currentTypes {
-			if _, deleted := deletedIDs[ct.ID]; deleted {
-				stillPresent = true
-				break
-			}
-		}
-		if !stillPresent {
+		if !anyWorkItemTypeIDPresent(currentTypes, deletedIDs) {
 			return true
 		}
 
