@@ -1,3 +1,13 @@
+## 1.1.0
+FEATURES:
+- Add `youtrack_service` resource for managing Hub services (external application registrations), supporting use cases such as registering an MCP server as a Hub-authenticated OAuth client (#41).
+
+IMPROVEMENTS:
+- Add OAuth grant flow attributes to `youtrack_service`: `client_credentials_flow_enabled`, `auth_code_flow_enabled`, `pkce_required`, `implicit_flow_enabled`, and `resource_owner_flow_enabled`.
+- Harden global time tracking acceptance tests against YouTrack's transient `WorkItemType[...] was removed` error following a deletion.
+
+BUG FIXES:
+
 ## 1.0.8
 FEATURES:
 - Add `youtrack_auth_module_azure` resource for managing Hub Microsoft Entra ID (formerly Azure AD) authentication modules.
