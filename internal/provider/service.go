@@ -118,6 +118,36 @@ func (r *serviceResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Default:     booldefault.StaticBool(true),
 				Description: "Whether Hub must ask the user for consent before granting this service access. Defaults to true.",
 			},
+			"client_credentials_flow_enabled": schema.BoolAttribute{
+				Optional:    true,
+				Computed:    true,
+				Default:     booldefault.StaticBool(true),
+				Description: "Whether the OAuth 2.0 client credentials grant flow is enabled for this service. Defaults to true.",
+			},
+			"auth_code_flow_enabled": schema.BoolAttribute{
+				Optional:    true,
+				Computed:    true,
+				Default:     booldefault.StaticBool(true),
+				Description: "Whether the OAuth 2.0 authorization code grant flow is enabled for this service. Defaults to true.",
+			},
+			"pkce_required": schema.BoolAttribute{
+				Optional:    true,
+				Computed:    true,
+				Default:     booldefault.StaticBool(false),
+				Description: "Whether PKCE is required for the authorization code grant flow. Defaults to false.",
+			},
+			"implicit_flow_enabled": schema.BoolAttribute{
+				Optional:    true,
+				Computed:    true,
+				Default:     booldefault.StaticBool(true),
+				Description: "Whether the OAuth 2.0 implicit grant flow is enabled for this service. Defaults to true.",
+			},
+			"resource_owner_flow_enabled": schema.BoolAttribute{
+				Optional:    true,
+				Computed:    true,
+				Default:     booldefault.StaticBool(true),
+				Description: "Whether the OAuth 2.0 resource owner password credentials grant flow is enabled for this service. Defaults to true.",
+			},
 			"secret": schema.StringAttribute{
 				Optional:  true,
 				Computed:  true,

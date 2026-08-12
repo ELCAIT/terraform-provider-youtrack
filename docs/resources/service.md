@@ -31,7 +31,9 @@ resource "youtrack_service" "minimal" {
   name = "My Service"
 }
 
-# Register an MCP server as a Hub-authenticated service.
+# Register an MCP server as a Hub-authenticated service, restricted to the
+# PKCE-protected authorization code flow (the recommended flow for an
+# interactive client with a redirect URI).
 resource "youtrack_service" "mcp_server" {
   name             = "My MCP Server"
   application_name = "my-mcp-server"
@@ -41,10 +43,35 @@ resource "youtrack_service" "mcp_server" {
   base_urls        = ["https://mcp.example.com"]
   trusted          = false
   consent_required = true
+
+  client_credentials_flow_enabled = false
+  auth_code_flow_enabled          = true
+  pkce_required                   = true
+  implicit_flow_enabled           = false
+  resource_owner_flow_enabled     = false
 }
 
 output "mcp_server_secret" {
   value     = youtrack_service.mcp_server.secret
+  sensitive = true
+}
+
+# Register a machine-to-machine integration that authenticates on its own
+# behalf (no interactive user), restricted to the client credentials flow.
+resource "youtrack_service" "backend_integration" {
+  name        = "My Backend Integration"
+  description = "Server-to-server integration with YouTrack"
+  trusted     = true
+
+  client_credentials_flow_enabled = true
+  auth_code_flow_enabled          = false
+  pkce_required                   = false
+  implicit_flow_enabled           = false
+  resource_owner_flow_enabled     = false
+}
+
+output "backend_integration_secret" {
+  value     = youtrack_service.backend_integration.secret
   sensitive = true
 }
 ```
@@ -59,12 +86,17 @@ output "mcp_server_secret" {
 ### Optional
 
 - `application_name` (String) Name of the application this service represents. Can only be set at creation; Hub only allows the service itself to change this afterward.
+- `auth_code_flow_enabled` (Boolean) Whether the OAuth 2.0 authorization code grant flow is enabled for this service. Defaults to true.
 - `base_urls` (List of String) Base URLs from which the service is allowed to make requests.
+- `client_credentials_flow_enabled` (Boolean) Whether the OAuth 2.0 client credentials grant flow is enabled for this service. Defaults to true.
 - `consent_required` (Boolean) Whether Hub must ask the user for consent before granting this service access. Defaults to true.
 - `description` (String) Description of the service.
 - `home_url` (String) Home URL of the service.
+- `implicit_flow_enabled` (Boolean) Whether the OAuth 2.0 implicit grant flow is enabled for this service. Defaults to true.
 - `key` (String) Unique key identifying the service. Defaults to the service name when omitted.
+- `pkce_required` (Boolean) Whether PKCE is required for the authorization code grant flow. Defaults to false.
 - `redirect_uris` (List of String) OAuth 2.0 redirect URIs allowed for this service.
+- `resource_owner_flow_enabled` (Boolean) Whether the OAuth 2.0 resource owner password credentials grant flow is enabled for this service. Defaults to true.
 - `secret` (String, Sensitive) Client secret for the service. When omitted, Hub generates one automatically. This value is write-only and is not returned by the API.
 - `trusted` (Boolean) Whether the service is trusted. Trusted services skip the user consent screen. Defaults to false.
 - `vendor` (String) Vendor of the service. Can only be set at creation; Hub only allows the service itself to change this afterward.

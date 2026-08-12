@@ -27,19 +27,24 @@ const (
 
 // serviceResourceModel maps the Terraform resource schema data.
 type serviceResourceModel struct {
-	ID              types.String `tfsdk:"id"`
-	Name            types.String `tfsdk:"name"`
-	Key             types.String `tfsdk:"key"`
-	HomeURL         types.String `tfsdk:"home_url"`
-	ApplicationName types.String `tfsdk:"application_name"`
-	Description     types.String `tfsdk:"description"`
-	Vendor          types.String `tfsdk:"vendor"`
-	Version         types.String `tfsdk:"version"`
-	RedirectURIs    types.List   `tfsdk:"redirect_uris"`
-	BaseURLs        types.List   `tfsdk:"base_urls"`
-	Trusted         types.Bool   `tfsdk:"trusted"`
-	ConsentRequired types.Bool   `tfsdk:"consent_required"`
-	Secret          types.String `tfsdk:"secret"`
+	ID                           types.String `tfsdk:"id"`
+	Name                         types.String `tfsdk:"name"`
+	Key                          types.String `tfsdk:"key"`
+	HomeURL                      types.String `tfsdk:"home_url"`
+	ApplicationName              types.String `tfsdk:"application_name"`
+	Description                  types.String `tfsdk:"description"`
+	Vendor                       types.String `tfsdk:"vendor"`
+	Version                      types.String `tfsdk:"version"`
+	RedirectURIs                 types.List   `tfsdk:"redirect_uris"`
+	BaseURLs                     types.List   `tfsdk:"base_urls"`
+	Trusted                      types.Bool   `tfsdk:"trusted"`
+	ConsentRequired              types.Bool   `tfsdk:"consent_required"`
+	ClientCredentialsFlowEnabled types.Bool   `tfsdk:"client_credentials_flow_enabled"`
+	AuthCodeFlowEnabled          types.Bool   `tfsdk:"auth_code_flow_enabled"`
+	PKCERequired                 types.Bool   `tfsdk:"pkce_required"`
+	ImplicitFlowEnabled          types.Bool   `tfsdk:"implicit_flow_enabled"`
+	ResourceOwnerFlowEnabled     types.Bool   `tfsdk:"resource_owner_flow_enabled"`
+	Secret                       types.String `tfsdk:"secret"`
 }
 
 // toAPIModel converts the Terraform model to the API model.
@@ -51,16 +56,21 @@ type serviceResourceModel struct {
 // comment in youtrack-api-client for the confirmed clearing semantics.
 func (m *serviceResourceModel) toAPIModel(ctx context.Context) youtrack.Service {
 	service := youtrack.Service{
-		Name:            m.Name.ValueString(),
-		Key:             m.Key.ValueString(),
-		HomeURL:         m.HomeURL.ValueString(),
-		ApplicationName: m.ApplicationName.ValueString(),
-		Description:     m.Description.ValueString(),
-		Vendor:          m.Vendor.ValueString(),
-		Version:         m.Version.ValueString(),
-		Trusted:         m.Trusted.ValueBool(),
-		ConsentRequired: m.ConsentRequired.ValueBool(),
-		Secret:          m.Secret.ValueString(),
+		Name:                         m.Name.ValueString(),
+		Key:                          m.Key.ValueString(),
+		HomeURL:                      m.HomeURL.ValueString(),
+		ApplicationName:              m.ApplicationName.ValueString(),
+		Description:                  m.Description.ValueString(),
+		Vendor:                       m.Vendor.ValueString(),
+		Version:                      m.Version.ValueString(),
+		Trusted:                      m.Trusted.ValueBool(),
+		ConsentRequired:              m.ConsentRequired.ValueBool(),
+		ClientCredentialsFlowEnabled: m.ClientCredentialsFlowEnabled.ValueBool(),
+		AuthCodeFlowEnabled:          m.AuthCodeFlowEnabled.ValueBool(),
+		PKCERequired:                 m.PKCERequired.ValueBool(),
+		ImplicitFlowEnabled:          m.ImplicitFlowEnabled.ValueBool(),
+		ResourceOwnerFlowEnabled:     m.ResourceOwnerFlowEnabled.ValueBool(),
+		Secret:                       m.Secret.ValueString(),
 	}
 
 	if !m.RedirectURIs.IsNull() && !m.RedirectURIs.IsUnknown() {
@@ -92,6 +102,11 @@ func (m *serviceResourceModel) fromAPIModel(api *youtrack.Service) {
 	m.Version = helpers.StringOrNull(api.Version)
 	m.Trusted = types.BoolValue(api.Trusted)
 	m.ConsentRequired = types.BoolValue(api.ConsentRequired)
+	m.ClientCredentialsFlowEnabled = types.BoolValue(api.ClientCredentialsFlowEnabled)
+	m.AuthCodeFlowEnabled = types.BoolValue(api.AuthCodeFlowEnabled)
+	m.PKCERequired = types.BoolValue(api.PKCERequired)
+	m.ImplicitFlowEnabled = types.BoolValue(api.ImplicitFlowEnabled)
+	m.ResourceOwnerFlowEnabled = types.BoolValue(api.ResourceOwnerFlowEnabled)
 
 	m.RedirectURIs = stringSliceToList(api.RedirectURIs)
 	m.BaseURLs = stringSliceToList(api.BaseURLs)

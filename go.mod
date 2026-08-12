@@ -3,18 +3,11 @@ module github.com/elcait/terraform-provider-youtrack
 go 1.26.5
 
 require (
-	github.com/elcait/youtrack-api-client v1.1.6
+	github.com/elcait/youtrack-api-client v1.1.7
 	github.com/hashicorp/terraform-plugin-framework v1.19.0
 	github.com/hashicorp/terraform-plugin-go v0.31.0
 	github.com/hashicorp/terraform-plugin-testing v1.16.0
 )
-
-// TEMPORARY local-dev shim: youtrack-api-client's Hub services support
-// (CreateService/ListServices/GetServiceByID/UpdateService/DeleteService,
-// added on its feat-add-support-for-hub-services branch) has not been
-// released yet. Remove this and bump the require above to a real tagged
-// version once that PR is merged and released.
-replace github.com/elcait/youtrack-api-client => /home/flos/sources/github/elcait/youtrack-api-client
 
 require (
 	github.com/ProtonMail/go-crypto v1.4.1 // indirect

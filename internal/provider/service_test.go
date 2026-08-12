@@ -30,19 +30,24 @@ const (
 
 func newMinimalServiceModel() serviceResourceModel {
 	return serviceResourceModel{
-		ID:              types.StringValue(serviceTestID),
-		Name:            types.StringValue(serviceTestName),
-		Key:             types.StringValue(serviceTestKey),
-		HomeURL:         types.StringNull(),
-		ApplicationName: types.StringNull(),
-		Description:     types.StringNull(),
-		Vendor:          types.StringNull(),
-		Version:         types.StringNull(),
-		RedirectURIs:    types.ListNull(types.StringType),
-		BaseURLs:        types.ListNull(types.StringType),
-		Trusted:         types.BoolValue(false),
-		ConsentRequired: types.BoolValue(true),
-		Secret:          types.StringNull(),
+		ID:                           types.StringValue(serviceTestID),
+		Name:                         types.StringValue(serviceTestName),
+		Key:                          types.StringValue(serviceTestKey),
+		HomeURL:                      types.StringNull(),
+		ApplicationName:              types.StringNull(),
+		Description:                  types.StringNull(),
+		Vendor:                       types.StringNull(),
+		Version:                      types.StringNull(),
+		RedirectURIs:                 types.ListNull(types.StringType),
+		BaseURLs:                     types.ListNull(types.StringType),
+		Trusted:                      types.BoolValue(false),
+		ConsentRequired:              types.BoolValue(true),
+		ClientCredentialsFlowEnabled: types.BoolValue(true),
+		AuthCodeFlowEnabled:          types.BoolValue(true),
+		PKCERequired:                 types.BoolValue(false),
+		ImplicitFlowEnabled:          types.BoolValue(true),
+		ResourceOwnerFlowEnabled:     types.BoolValue(true),
+		Secret:                       types.StringNull(),
 	}
 }
 
@@ -56,10 +61,15 @@ func TestServiceModelToAPIModel(t *testing.T) {
 			name:  "minimal model with required fields only sends nil lists",
 			model: newMinimalServiceModel(),
 			want: youtrack.Service{
-				Name:            serviceTestName,
-				Key:             serviceTestKey,
-				Trusted:         false,
-				ConsentRequired: true,
+				Name:                         serviceTestName,
+				Key:                          serviceTestKey,
+				Trusted:                      false,
+				ConsentRequired:              true,
+				ClientCredentialsFlowEnabled: true,
+				AuthCodeFlowEnabled:          true,
+				PKCERequired:                 false,
+				ImplicitFlowEnabled:          true,
+				ResourceOwnerFlowEnabled:     true,
 			},
 		},
 		{
@@ -73,24 +83,34 @@ func TestServiceModelToAPIModel(t *testing.T) {
 				m.Version = types.StringValue(serviceTestVersion)
 				m.Trusted = types.BoolValue(true)
 				m.ConsentRequired = types.BoolValue(false)
+				m.ClientCredentialsFlowEnabled = types.BoolValue(false)
+				m.AuthCodeFlowEnabled = types.BoolValue(false)
+				m.PKCERequired = types.BoolValue(true)
+				m.ImplicitFlowEnabled = types.BoolValue(false)
+				m.ResourceOwnerFlowEnabled = types.BoolValue(false)
 				m.Secret = types.StringValue(serviceTestSecret)
 				m.RedirectURIs = mustStringList(t, []string{serviceTestRedirectURI}...)
 				m.BaseURLs = mustStringList(t, []string{serviceTestBaseURL}...)
 				return m
 			}(),
 			want: youtrack.Service{
-				Name:            serviceTestName,
-				Key:             serviceTestKey,
-				HomeURL:         serviceTestHomeURL,
-				ApplicationName: serviceTestApplicationName,
-				Description:     serviceTestDescription,
-				Vendor:          serviceTestVendor,
-				Version:         serviceTestVersion,
-				Trusted:         true,
-				ConsentRequired: false,
-				Secret:          serviceTestSecret,
-				RedirectURIs:    []string{serviceTestRedirectURI},
-				BaseURLs:        []string{serviceTestBaseURL},
+				Name:                         serviceTestName,
+				Key:                          serviceTestKey,
+				HomeURL:                      serviceTestHomeURL,
+				ApplicationName:              serviceTestApplicationName,
+				Description:                  serviceTestDescription,
+				Vendor:                       serviceTestVendor,
+				Version:                      serviceTestVersion,
+				Trusted:                      true,
+				ConsentRequired:              false,
+				ClientCredentialsFlowEnabled: false,
+				AuthCodeFlowEnabled:          false,
+				PKCERequired:                 true,
+				ImplicitFlowEnabled:          false,
+				ResourceOwnerFlowEnabled:     false,
+				Secret:                       serviceTestSecret,
+				RedirectURIs:                 []string{serviceTestRedirectURI},
+				BaseURLs:                     []string{serviceTestBaseURL},
 			},
 		},
 		{
@@ -102,12 +122,17 @@ func TestServiceModelToAPIModel(t *testing.T) {
 				return m
 			}(),
 			want: youtrack.Service{
-				Name:            serviceTestName,
-				Key:             serviceTestKey,
-				Trusted:         false,
-				ConsentRequired: true,
-				RedirectURIs:    []string{},
-				BaseURLs:        []string{},
+				Name:                         serviceTestName,
+				Key:                          serviceTestKey,
+				Trusted:                      false,
+				ConsentRequired:              true,
+				ClientCredentialsFlowEnabled: true,
+				AuthCodeFlowEnabled:          true,
+				PKCERequired:                 false,
+				ImplicitFlowEnabled:          true,
+				ResourceOwnerFlowEnabled:     true,
+				RedirectURIs:                 []string{},
+				BaseURLs:                     []string{},
 			},
 		},
 	}
@@ -124,6 +149,11 @@ func TestServiceModelToAPIModel(t *testing.T) {
 			helpers.AssertFieldEqual(t, "Version", got.Version, tt.want.Version)
 			helpers.AssertFieldEqual(t, "Trusted", got.Trusted, tt.want.Trusted)
 			helpers.AssertFieldEqual(t, "ConsentRequired", got.ConsentRequired, tt.want.ConsentRequired)
+			helpers.AssertFieldEqual(t, "ClientCredentialsFlowEnabled", got.ClientCredentialsFlowEnabled, tt.want.ClientCredentialsFlowEnabled)
+			helpers.AssertFieldEqual(t, "AuthCodeFlowEnabled", got.AuthCodeFlowEnabled, tt.want.AuthCodeFlowEnabled)
+			helpers.AssertFieldEqual(t, "PKCERequired", got.PKCERequired, tt.want.PKCERequired)
+			helpers.AssertFieldEqual(t, "ImplicitFlowEnabled", got.ImplicitFlowEnabled, tt.want.ImplicitFlowEnabled)
+			helpers.AssertFieldEqual(t, "ResourceOwnerFlowEnabled", got.ResourceOwnerFlowEnabled, tt.want.ResourceOwnerFlowEnabled)
 			helpers.AssertFieldEqual(t, "Secret", got.Secret, tt.want.Secret)
 
 			if (got.RedirectURIs == nil) != (tt.want.RedirectURIs == nil) {
@@ -154,18 +184,23 @@ func TestServiceModelFromAPIModel(t *testing.T) {
 		{
 			name: "full api response populates model",
 			apiService: youtrack.Service{
-				ID:              serviceTestID,
-				Name:            serviceTestName,
-				Key:             serviceTestKey,
-				HomeURL:         serviceTestHomeURL,
-				ApplicationName: serviceTestApplicationName,
-				Description:     serviceTestDescription,
-				Vendor:          serviceTestVendor,
-				Version:         serviceTestVersion,
-				Trusted:         true,
-				ConsentRequired: false,
-				RedirectURIs:    []string{serviceTestRedirectURI},
-				BaseURLs:        []string{serviceTestBaseURL},
+				ID:                           serviceTestID,
+				Name:                         serviceTestName,
+				Key:                          serviceTestKey,
+				HomeURL:                      serviceTestHomeURL,
+				ApplicationName:              serviceTestApplicationName,
+				Description:                  serviceTestDescription,
+				Vendor:                       serviceTestVendor,
+				Version:                      serviceTestVersion,
+				Trusted:                      true,
+				ConsentRequired:              false,
+				ClientCredentialsFlowEnabled: true,
+				AuthCodeFlowEnabled:          true,
+				PKCERequired:                 true,
+				ImplicitFlowEnabled:          false,
+				ResourceOwnerFlowEnabled:     false,
+				RedirectURIs:                 []string{serviceTestRedirectURI},
+				BaseURLs:                     []string{serviceTestBaseURL},
 			},
 			wantHomeURL:    true,
 			wantRedirect:   true,
@@ -193,6 +228,11 @@ func TestServiceModelFromAPIModel(t *testing.T) {
 			helpers.AssertFieldEqual(t, "Key", model.Key.ValueString(), tt.apiService.Key)
 			helpers.AssertFieldEqual(t, "Trusted", model.Trusted.ValueBool(), tt.apiService.Trusted)
 			helpers.AssertFieldEqual(t, "ConsentRequired", model.ConsentRequired.ValueBool(), tt.apiService.ConsentRequired)
+			helpers.AssertFieldEqual(t, "ClientCredentialsFlowEnabled", model.ClientCredentialsFlowEnabled.ValueBool(), tt.apiService.ClientCredentialsFlowEnabled)
+			helpers.AssertFieldEqual(t, "AuthCodeFlowEnabled", model.AuthCodeFlowEnabled.ValueBool(), tt.apiService.AuthCodeFlowEnabled)
+			helpers.AssertFieldEqual(t, "PKCERequired", model.PKCERequired.ValueBool(), tt.apiService.PKCERequired)
+			helpers.AssertFieldEqual(t, "ImplicitFlowEnabled", model.ImplicitFlowEnabled.ValueBool(), tt.apiService.ImplicitFlowEnabled)
+			helpers.AssertFieldEqual(t, "ResourceOwnerFlowEnabled", model.ResourceOwnerFlowEnabled.ValueBool(), tt.apiService.ResourceOwnerFlowEnabled)
 
 			if tt.wantHomeURL {
 				helpers.AssertFieldEqual(t, "HomeURL", model.HomeURL.ValueString(), serviceTestHomeURL)
