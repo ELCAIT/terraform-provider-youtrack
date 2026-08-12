@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -150,7 +151,7 @@ func registerWorkItemTypesCleanup(t *testing.T, client *youtrack.Client, origina
 		if _, restoreErr := client.UpdateWorkTimeSettings(context.Background(), originalWorkTime); restoreErr != nil {
 			t.Errorf("failed to restore original work time settings: %v", restoreErr)
 		}
-		currentTypes, listErr := client.ListWorkItemTypes(context.Background())
+		currentTypes, listErr := listWorkItemTypesWithRetryForTest(client)
 		if listErr != nil {
 			t.Errorf("failed to list work item types during cleanup: %v", listErr)
 			return
@@ -196,6 +197,10 @@ func deleteWorkItemTypesBefore(t *testing.T, client *youtrack.Client, types []yo
 	for {
 		currentTypes, err := client.ListWorkItemTypes(context.Background())
 		if err != nil {
+			if isTransientRemovedWorkItemTypeListErrorForTest(err) && time.Now().Before(deadline) {
+				time.Sleep(500 * time.Millisecond)
+				continue
+			}
 			t.Fatalf("failed to list work item types while waiting for cleanup: %v", err)
 		}
 
@@ -209,6 +214,41 @@ func deleteWorkItemTypesBefore(t *testing.T, client *youtrack.Client, types []yo
 
 		time.Sleep(500 * time.Millisecond)
 	}
+}
+
+// isTransientRemovedWorkItemTypeListErrorForTest reports whether err is the transient
+// "WorkItemType[...] was removed" 500 that YouTrack returns briefly after work item
+// types are deleted. Mirrors the retry condition the resource itself applies on Read.
+func isTransientRemovedWorkItemTypeListErrorForTest(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errMsg := strings.ToLower(err.Error())
+	return strings.Contains(errMsg, "workitemtype[") && strings.Contains(errMsg, "was removed")
+}
+
+// listWorkItemTypesWithRetryForTest lists work item types, retrying past the transient
+// "was removed" error that can follow a recent deletion.
+func listWorkItemTypesWithRetryForTest(client *youtrack.Client) ([]youtrack.WorkItemType, error) {
+	const maxAttempts = 8
+
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		currentTypes, err := client.ListWorkItemTypes(context.Background())
+		if err == nil {
+			return currentTypes, nil
+		}
+
+		lastErr = err
+		if !isTransientRemovedWorkItemTypeListErrorForTest(err) || attempt == maxAttempts {
+			break
+		}
+
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	return nil, lastErr
 }
 
 func TestAccGlobalTimeTrackingSettingsWorkItemTypes(t *testing.T) {

@@ -33,6 +33,8 @@ const (
 	defaultWorkMinutesADay         = 480
 	workItemTypesReadMaxAttempts   = 8
 	workItemTypesReadRetryDelay    = 500 * time.Millisecond
+	workItemTypeDeleteMaxAttempts  = 20
+	workItemTypeDeleteRetryDelay   = 500 * time.Millisecond
 )
 
 // computedWhenUnconfiguredSetModifier marks a set attribute as (known after apply)
@@ -672,5 +674,56 @@ func (r *globalTimeTrackingSettingsResource) syncWorkItemTypesIfConfigured(ctx c
 		return false
 	}
 
-	return r.applyWorkItemTypeChanges(ctx, changes, diagnostics)
+	if !r.applyWorkItemTypeChanges(ctx, changes, diagnostics) {
+		return false
+	}
+
+	return r.waitForWorkItemTypeDeletions(ctx, changes, diagnostics)
+}
+
+// waitForWorkItemTypeDeletions polls until deleted work item types no longer appear in
+// the list, guarding against the API briefly returning stale data right after a delete.
+func (r *globalTimeTrackingSettingsResource) waitForWorkItemTypeDeletions(ctx context.Context, changes []workItemTypeChange, diagnostics *diag.Diagnostics) bool {
+	deletedIDs := make(map[string]struct{})
+	for _, c := range changes {
+		if c.deleteID != "" {
+			deletedIDs[c.deleteID] = struct{}{}
+		}
+	}
+	if len(deletedIDs) == 0 {
+		return true
+	}
+
+	for attempt := 1; attempt <= workItemTypeDeleteMaxAttempts; attempt++ {
+		currentTypes, err := r.listWorkItemTypesWithRetry(ctx)
+		if err != nil {
+			diagnostics.AddError(errManagingWorkItemTypes, err.Error())
+			return false
+		}
+
+		stillPresent := false
+		for _, ct := range currentTypes {
+			if _, deleted := deletedIDs[ct.ID]; deleted {
+				stillPresent = true
+				break
+			}
+		}
+		if !stillPresent {
+			return true
+		}
+
+		if attempt == workItemTypeDeleteMaxAttempts {
+			break
+		}
+
+		select {
+		case <-ctx.Done():
+			diagnostics.AddError(errManagingWorkItemTypes, ctx.Err().Error())
+			return false
+		case <-time.After(workItemTypeDeleteRetryDelay):
+		}
+	}
+
+	diagnostics.AddError(errManagingWorkItemTypes, "timed out waiting for deleted work item types to disappear from the API")
+	return false
 }
