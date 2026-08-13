@@ -6,8 +6,8 @@ resource "youtrack_service" "mcp_server" {
   description = "MCP server integration for YouTrack"
   trusted     = true
 
-  client_credentials_flow_enabled = true
-  auth_code_flow_enabled          = false
+  client_credentials_flow_enabled = false
+  auth_code_flow_enabled          = true
   pkce_required                   = true
   implicit_flow_enabled           = false
   resource_owner_flow_enabled     = false

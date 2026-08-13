@@ -33,8 +33,7 @@ const (
 	defaultWorkMinutesADay         = 480
 	workItemTypesReadMaxAttempts   = 8
 	workItemTypesReadRetryDelay    = 500 * time.Millisecond
-	workItemTypeDeleteMaxAttempts  = 20
-	workItemTypeDeleteRetryDelay   = 500 * time.Millisecond
+	workItemTypeSettleMaxAttempts  = 20
 )
 
 // computedWhenUnconfiguredSetModifier marks a set attribute as (known after apply)
@@ -399,14 +398,22 @@ func (r *globalTimeTrackingSettingsResource) listWorkItemTypesWithRetry(ctx cont
 			break
 		}
 
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(workItemTypesReadRetryDelay):
+		if err := waitOrContextDone(ctx, workItemTypesReadRetryDelay); err != nil {
+			return nil, err
 		}
 	}
 
 	return nil, lastErr
+}
+
+// waitOrContextDone pauses for delay, returning ctx.Err() if the context is cancelled first.
+func waitOrContextDone(ctx context.Context, delay time.Duration) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(delay):
+		return nil
+	}
 }
 
 func isTransientRemovedWorkItemTypeListError(err error) bool {
@@ -678,11 +685,9 @@ func (r *globalTimeTrackingSettingsResource) syncWorkItemTypesIfConfigured(ctx c
 		return false
 	}
 
-	return r.waitForWorkItemTypeDeletions(ctx, changes, diagnostics)
+	return r.waitForWorkItemTypeChangesToSettle(ctx, changes, diagnostics)
 }
 
-// waitForWorkItemTypeDeletions polls until deleted work item types no longer appear in
-// the list, guarding against the API briefly returning stale data right after a delete.
 // deletedWorkItemTypeIDs collects the IDs slated for deletion across the given changes.
 func deletedWorkItemTypeIDs(changes []workItemTypeChange) map[string]struct{} {
 	deletedIDs := make(map[string]struct{})
@@ -692,6 +697,21 @@ func deletedWorkItemTypeIDs(changes []workItemTypeChange) map[string]struct{} {
 		}
 	}
 	return deletedIDs
+}
+
+// expectedWorkItemTypesByName collects the name -> auto_attached values that created or
+// updated work item types are expected to have once the API reflects the change.
+func expectedWorkItemTypesByName(changes []workItemTypeChange) map[string]bool {
+	expected := make(map[string]bool)
+	for _, c := range changes {
+		switch {
+		case c.create != nil:
+			expected[c.create.Name] = c.create.AutoAttached
+		case c.update != nil:
+			expected[c.update.Name] = c.update.AutoAttached
+		}
+	}
+	return expected
 }
 
 // anyWorkItemTypeIDPresent reports whether any of the given types has an ID in ids.
@@ -704,35 +724,62 @@ func anyWorkItemTypeIDPresent(currentTypes []youtrack.WorkItemType, ids map[stri
 	return false
 }
 
-func (r *globalTimeTrackingSettingsResource) waitForWorkItemTypeDeletions(ctx context.Context, changes []workItemTypeChange, diagnostics *diag.Diagnostics) bool {
+// workItemTypeChangesSettled reports whether currentTypes reflects all of the given changes:
+// deleted IDs are gone, and created/updated types are present with the expected auto_attached value.
+func workItemTypeChangesSettled(currentTypes []youtrack.WorkItemType, deletedIDs map[string]struct{}, expectedByName map[string]bool) bool {
+	if anyWorkItemTypeIDPresent(currentTypes, deletedIDs) {
+		return false
+	}
+
+	currentByName := buildCurrentWorkItemTypesByName(currentTypes)
+	for name, autoAttached := range expectedByName {
+		existing, ok := currentByName[name]
+		if !ok || existing.AutoAttached != autoAttached {
+			return false
+		}
+	}
+
+	return true
+}
+
+// waitForWorkItemTypeChangesToSettle polls the API until it reflects the given create/update/delete
+// changes, guarding against the API briefly returning stale data right after a mutation. Unlike
+// listWorkItemTypesWithRetry (which only retries a specific transient error), this retries any list
+// error, since the whole point of this budget is to ride out post-mutation API flakiness.
+func (r *globalTimeTrackingSettingsResource) waitForWorkItemTypeChangesToSettle(ctx context.Context, changes []workItemTypeChange, diagnostics *diag.Diagnostics) bool {
 	deletedIDs := deletedWorkItemTypeIDs(changes)
-	if len(deletedIDs) == 0 {
+	expectedByName := expectedWorkItemTypesByName(changes)
+	if len(deletedIDs) == 0 && len(expectedByName) == 0 {
 		return true
 	}
 
-	for attempt := 1; attempt <= workItemTypeDeleteMaxAttempts; attempt++ {
-		currentTypes, err := r.listWorkItemTypesWithRetry(ctx)
-		if err != nil {
-			diagnostics.AddError(errManagingWorkItemTypes, err.Error())
-			return false
+	var lastErr error
+	for attempt := 1; attempt <= workItemTypeSettleMaxAttempts; attempt++ {
+		currentTypes, err := r.client.ListWorkItemTypes(ctx)
+		if err == nil {
+			lastErr = nil
+			if workItemTypeChangesSettled(currentTypes, deletedIDs, expectedByName) {
+				return true
+			}
+		} else {
+			lastErr = err
 		}
 
-		if !anyWorkItemTypeIDPresent(currentTypes, deletedIDs) {
-			return true
-		}
-
-		if attempt == workItemTypeDeleteMaxAttempts {
+		if attempt == workItemTypeSettleMaxAttempts {
 			break
 		}
 
-		select {
-		case <-ctx.Done():
-			diagnostics.AddError(errManagingWorkItemTypes, ctx.Err().Error())
+		if err := waitOrContextDone(ctx, workItemTypesReadRetryDelay); err != nil {
+			diagnostics.AddError(errManagingWorkItemTypes, err.Error())
 			return false
-		case <-time.After(workItemTypeDeleteRetryDelay):
 		}
 	}
 
-	diagnostics.AddError(errManagingWorkItemTypes, "timed out waiting for deleted work item types to disappear from the API")
+	if lastErr != nil {
+		diagnostics.AddError(errUnableToReadWorkItemTypes, lastErr.Error())
+		return false
+	}
+
+	diagnostics.AddError(errManagingWorkItemTypes, "timed out waiting for work item type changes to be reflected by the API")
 	return false
 }

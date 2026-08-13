@@ -1,3 +1,12 @@
+## 1.1.1
+FEATURES:
+
+IMPROVEMENTS:
+
+BUG FIXES:
+- Fix `youtrack_service` silently reverting `trusted`, `consent_required`, and the OAuth grant flow attributes (`client_credentials_flow_enabled`, `auth_code_flow_enabled`, `pkce_required`, `implicit_flow_enabled`, `resource_owner_flow_enabled`) back to their schema defaults on any unrelated `apply` when left unset in configuration, which undid changes made directly in Hub.
+- Fix global time tracking work item type deletion polling aborting on the first transient list error instead of retrying, and extend the post-mutation consistency wait to also cover work item type creates and updates, not just deletes.
+
 ## 1.1.0
 FEATURES:
 - Add `youtrack_service` resource for managing Hub services (external application registrations), supporting use cases such as registering an MCP server as a Hub-authenticated OAuth client (#41).

@@ -2,11 +2,16 @@ package settings
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
 	youtrack "github.com/elcait/youtrack-api-client/client"
 
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
@@ -24,6 +29,8 @@ const (
 
 	msgExpectedConversionToSucceed = "expected conversion to succeed"
 	msgUnexpectedMinutesADay       = "unexpected minutes_a_day: got %d want %d"
+
+	workItemTypesTestPath = "/api/admin/timeTrackingSettings/workItemTypes"
 )
 
 func makeTestWorkDaysList(t *testing.T, days []int64) types.List {
@@ -344,5 +351,186 @@ func TestPlanWorkItemTypeChanges(t *testing.T) {
 			t.Parallel()
 			assertPlanWorkItemTypeChanges(t, tc.plan, tc.current, tc.wantChanges, tc.wantErr, tc.checkChange)
 		})
+	}
+}
+
+func TestWaitOrContextDone(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns nil once the delay elapses", func(t *testing.T) {
+		t.Parallel()
+
+		if err := waitOrContextDone(context.Background(), time.Millisecond); err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+	})
+
+	t.Run("returns ctx error when cancelled first", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		if err := waitOrContextDone(ctx, time.Second); err == nil {
+			t.Fatal("expected an error when the context is already cancelled")
+		}
+	})
+}
+
+func TestWorkItemTypeChangesSettled(t *testing.T) {
+	t.Parallel()
+
+	deletedIDs := map[string]struct{}{testWorkItemTypeID: {}}
+	expectedByName := map[string]bool{testWorkItemType: true}
+
+	tests := []struct {
+		name           string
+		current        []youtrack.WorkItemType
+		deletedIDs     map[string]struct{}
+		expectedByName map[string]bool
+		want           bool
+	}{
+		{
+			name:           "settled when there is nothing to check",
+			current:        []youtrack.WorkItemType{},
+			deletedIDs:     map[string]struct{}{},
+			expectedByName: map[string]bool{},
+			want:           true,
+		},
+		{
+			name:           "not settled while a deleted ID is still present",
+			current:        []youtrack.WorkItemType{{ID: testWorkItemTypeID, Name: testWorkItemType, AutoAttached: true}},
+			deletedIDs:     deletedIDs,
+			expectedByName: map[string]bool{},
+			want:           false,
+		},
+		{
+			name:           "settled once the deleted ID is gone",
+			current:        []youtrack.WorkItemType{},
+			deletedIDs:     deletedIDs,
+			expectedByName: map[string]bool{},
+			want:           true,
+		},
+		{
+			name:           "not settled while a created type is missing",
+			current:        []youtrack.WorkItemType{},
+			deletedIDs:     map[string]struct{}{},
+			expectedByName: expectedByName,
+			want:           false,
+		},
+		{
+			name:           "not settled while auto_attached does not match yet",
+			current:        []youtrack.WorkItemType{{ID: testWorkItemTypeID, Name: testWorkItemType, AutoAttached: false}},
+			deletedIDs:     map[string]struct{}{},
+			expectedByName: expectedByName,
+			want:           false,
+		},
+		{
+			name:           "settled once the created type matches",
+			current:        []youtrack.WorkItemType{{ID: testWorkItemTypeID, Name: testWorkItemType, AutoAttached: true}},
+			deletedIDs:     map[string]struct{}{},
+			expectedByName: expectedByName,
+			want:           true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := workItemTypeChangesSettled(tc.current, tc.deletedIDs, tc.expectedByName)
+			if got != tc.want {
+				t.Fatalf("workItemTypeChangesSettled() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func startWorkItemTypesServer(t *testing.T, handler func(attempt int) (status int, body []youtrack.WorkItemType)) *youtrack.Client {
+	t.Helper()
+
+	attempt := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != workItemTypesTestPath {
+			http.NotFound(w, r)
+			return
+		}
+
+		attempt++
+		status, body := handler(attempt)
+		w.WriteHeader(status)
+		if body != nil {
+			if err := json.NewEncoder(w).Encode(body); err != nil {
+				t.Fatalf("failed to encode work item types response: %v", err)
+			}
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	client, err := youtrack.NewClient(server.URL, "token")
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	return client
+}
+
+func TestWaitForWorkItemTypeChangesToSettleNoOpWithoutRelevantChanges(t *testing.T) {
+	t.Parallel()
+
+	r := &globalTimeTrackingSettingsResource{}
+	var diagnostics diag.Diagnostics
+
+	if !r.waitForWorkItemTypeChangesToSettle(context.Background(), []workItemTypeChange{}, &diagnostics) {
+		t.Fatalf("expected no-op success, got diagnostics: %v", diagnostics)
+	}
+	if diagnostics.HasError() {
+		t.Fatalf("unexpected diagnostics: %v", diagnostics)
+	}
+}
+
+func TestWaitForWorkItemTypeChangesToSettleRetriesPastTransientListError(t *testing.T) {
+	t.Parallel()
+
+	client := startWorkItemTypesServer(t, func(attempt int) (int, []youtrack.WorkItemType) {
+		if attempt == 1 {
+			// Simulate a transient failure unrelated to the "was removed" case that
+			// listWorkItemTypesWithRetry special-cases, e.g. a 502 from a load balancer.
+			return http.StatusBadGateway, nil
+		}
+		return http.StatusOK, []youtrack.WorkItemType{}
+	})
+
+	r := &globalTimeTrackingSettingsResource{client: client}
+	var diagnostics diag.Diagnostics
+
+	changes := []workItemTypeChange{{deleteID: testWorkItemTypeID}}
+	if !r.waitForWorkItemTypeChangesToSettle(context.Background(), changes, &diagnostics) {
+		t.Fatalf("expected retry to succeed, got diagnostics: %v", diagnostics)
+	}
+	if diagnostics.HasError() {
+		t.Fatalf("unexpected diagnostics: %v", diagnostics)
+	}
+}
+
+func TestWaitForWorkItemTypeChangesToSettleTimesOut(t *testing.T) {
+	t.Parallel()
+
+	client := startWorkItemTypesServer(t, func(_ int) (int, []youtrack.WorkItemType) {
+		// The deleted type never disappears from the list.
+		return http.StatusOK, []youtrack.WorkItemType{{ID: testWorkItemTypeID, Name: testWorkItemType, AutoAttached: true}}
+	})
+
+	r := &globalTimeTrackingSettingsResource{client: client}
+	var diagnostics diag.Diagnostics
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+
+	changes := []workItemTypeChange{{deleteID: testWorkItemTypeID}}
+	if r.waitForWorkItemTypeChangesToSettle(ctx, changes, &diagnostics) {
+		t.Fatal("expected failure once the context deadline is exceeded")
+	}
+	if !diagnostics.HasError() {
+		t.Fatal("expected diagnostics to report the timeout")
 	}
 }
