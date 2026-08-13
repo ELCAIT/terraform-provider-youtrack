@@ -3,7 +3,7 @@ module github.com/elcait/terraform-provider-youtrack
 go 1.26.5
 
 require (
-	github.com/elcait/youtrack-api-client v1.1.7
+	github.com/elcait/youtrack-api-client v1.2.0
 	github.com/hashicorp/terraform-plugin-framework v1.19.0
 	github.com/hashicorp/terraform-plugin-go v0.31.0
 	github.com/hashicorp/terraform-plugin-testing v1.16.0

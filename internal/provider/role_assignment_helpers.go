@@ -95,14 +95,14 @@ func (r *roleAssignmentResource) lookupHolderAuto(ctx context.Context, login str
 	return holder
 }
 
-// buildAPIRoleAssignment creates a youtrack.AssignedRoles from the model data.
-func (r *roleAssignmentResource) buildAPIRoleAssignment(ctx context.Context, model *roleAssignmentResourceModel, diagnostics *diag.Diagnostics) *youtrack.AssignedRoles {
+// buildAPIRoleAssignment creates a youtrack.AssignedRole from the model data.
+func (r *roleAssignmentResource) buildAPIRoleAssignment(ctx context.Context, model *roleAssignmentResourceModel, diagnostics *diag.Diagnostics) *youtrack.AssignedRole {
 	holder := r.lookupHolderByLogin(ctx, model.HolderLogin.ValueString(), model.HolderType, diagnostics)
 	if holder == nil {
 		return nil
 	}
 
-	apiAssignment := youtrack.AssignedRoles{
+	apiAssignment := youtrack.AssignedRole{
 		Type: "AssignedRole",
 		Role: youtrack.Role{
 			Id: model.RoleId.ValueString(),
@@ -124,7 +124,7 @@ func (r *roleAssignmentResource) buildAPIRoleAssignment(ctx context.Context, mod
 }
 
 // mapAPIToModel maps the API response to the Terraform model.
-func (r *roleAssignmentResource) mapAPIToModel(apiAssignment *youtrack.AssignedRoles, model *roleAssignmentResourceModel) {
+func (r *roleAssignmentResource) mapAPIToModel(apiAssignment *youtrack.AssignedRole, model *roleAssignmentResourceModel) {
 	model.Id = types.StringValue(apiAssignment.Id)
 	model.RoleId = types.StringValue(apiAssignment.Role.Id)
 	model.RoleName = types.StringValue(apiAssignment.Role.Name)
