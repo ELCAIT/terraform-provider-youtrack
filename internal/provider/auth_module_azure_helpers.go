@@ -4,6 +4,8 @@
 package provider
 
 import (
+	"context"
+
 	helpers "github.com/elcait/terraform-provider-youtrack/internal/helpers"
 
 	youtrack "github.com/elcait/youtrack-api-client/client"
@@ -22,6 +24,43 @@ const (
 	// Error message details
 	errAzureModuleIDRequired = "Azure auth module ID is required to read the module"
 )
+
+// ops describes the Azure auth module to the shared secret-backed resource CRUD.
+func (r *azureAuthModuleResource) ops() secretBackedResourceOps[azureAuthModuleResourceModel, youtrack.AzureAuthModule] {
+	return secretBackedResourceOps[azureAuthModuleResourceModel, youtrack.AzureAuthModule]{
+		label:         "Azure auth module",
+		updateLabel:   "azure auth module",
+		errCreating:   errCreatingAzureModule,
+		errReading:    errReadingAzureModule,
+		errUpdating:   errUpdatingAzureModule,
+		errDeleting:   errDeletingAzureModule,
+		errImporting:  errImportingAzureModule,
+		errMissingID:  errMissingAzureModuleID,
+		errIDRequired: errAzureModuleIDRequired,
+
+		toAPI: func(_ context.Context, model *azureAuthModuleResourceModel) youtrack.AzureAuthModule {
+			return model.toAPIModel()
+		},
+		fromAPI: func(model *azureAuthModuleResourceModel, api *youtrack.AzureAuthModule) {
+			model.fromAPIModel(api)
+		},
+		modelID:     func(model *azureAuthModuleResourceModel) types.String { return model.ID },
+		modelSecret: func(model *azureAuthModuleResourceModel) types.String { return model.ClientSecret },
+		setSecret: func(model *azureAuthModuleResourceModel, secret types.String) {
+			model.ClientSecret = secret
+		},
+		apiID:     func(api *youtrack.AzureAuthModule) string { return api.ID },
+		apiSecret: func(api *youtrack.AzureAuthModule) string { return api.ClientSecret },
+
+		enforcedAttribute: attrAllowedCreateNewUsers,
+		enforcedValue:     func(api *youtrack.AzureAuthModule) *bool { return &api.AllowedCreateNewUsers },
+
+		create: r.client.CreateAzureAuthModule,
+		read:   r.client.GetAzureAuthModuleByID,
+		update: r.client.UpdateAzureAuthModule,
+		delete: r.client.DeleteAzureAuthModule,
+	}
+}
 
 // azureAuthModuleResourceModel maps the Terraform resource schema data.
 type azureAuthModuleResourceModel struct {

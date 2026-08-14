@@ -43,6 +43,10 @@ const (
 	fieldTypePrefixBuild      = "build"
 	fieldTypePrefixVersion    = "version"
 
+	// Bundle kinds as they read inside error messages.
+	bundleKindEnum  = "enum"
+	bundleKindState = "state"
+
 	bundleTypeEnum  = "EnumBundle"
 	bundleTypeState = "StateBundle"
 	bundleTypeOwned = "OwnedBundle"

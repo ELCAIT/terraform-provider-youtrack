@@ -185,42 +185,28 @@ func defaultValueNamesFromCustomFieldDefaults(defaults *youtrack.CustomFieldDefa
 	return types.ListValueMust(types.StringType, names)
 }
 
-func bundleTypeForFieldTypeID(fieldTypeID string) (string, bool) {
-	fieldTypePrefix := extractFieldTypePrefix(fieldTypeID)
+// bundleBackedFieldTypes maps a custom field type prefix to the `$type`
+// discriminators YouTrack expects for its bundle and for its field defaults.
+// Field types that are not bundle-backed are simply absent from the map.
+var bundleBackedFieldTypes = map[string]struct {
+	bundleType   string
+	defaultsType string
+}{
+	fieldTypePrefixEnum:       {bundleTypeEnum, defaultsTypeEnum},
+	fieldTypePrefixState:      {bundleTypeState, defaultsTypeState},
+	fieldTypePrefixOwnedField: {bundleTypeOwned, defaultsTypeOwned},
+	fieldTypePrefixBuild:      {bundleTypeBuild, defaultsTypeBuild},
+	fieldTypePrefixVersion:    {bundleTypeVer, defaultsTypeVer},
+}
 
-	switch fieldTypePrefix {
-	case fieldTypePrefixEnum:
-		return bundleTypeEnum, true
-	case fieldTypePrefixState:
-		return bundleTypeState, true
-	case fieldTypePrefixOwnedField:
-		return bundleTypeOwned, true
-	case fieldTypePrefixBuild:
-		return bundleTypeBuild, true
-	case fieldTypePrefixVersion:
-		return bundleTypeVer, true
-	default:
-		return "", false
-	}
+func bundleTypeForFieldTypeID(fieldTypeID string) (string, bool) {
+	discriminators, ok := bundleBackedFieldTypes[extractFieldTypePrefix(fieldTypeID)]
+	return discriminators.bundleType, ok
 }
 
 func defaultsTypeForFieldTypeID(fieldTypeID string) (string, bool) {
-	fieldTypePrefix := extractFieldTypePrefix(fieldTypeID)
-
-	switch fieldTypePrefix {
-	case fieldTypePrefixEnum:
-		return defaultsTypeEnum, true
-	case fieldTypePrefixState:
-		return defaultsTypeState, true
-	case fieldTypePrefixOwnedField:
-		return defaultsTypeOwned, true
-	case fieldTypePrefixBuild:
-		return defaultsTypeBuild, true
-	case fieldTypePrefixVersion:
-		return defaultsTypeVer, true
-	default:
-		return "", false
-	}
+	discriminators, ok := bundleBackedFieldTypes[extractFieldTypePrefix(fieldTypeID)]
+	return discriminators.defaultsType, ok
 }
 
 func extractFieldTypePrefix(fieldTypeID string) string {
@@ -350,18 +336,22 @@ func (r *customFieldResource) lookupCustomFieldBundleByName(ctx context.Context,
 	case fieldTypePrefixEnum:
 		bundle, err := r.client.GetEnumBundleByName(ctx, bundleName)
 		if err != nil {
-			return nil, fmt.Errorf("could not find enum bundle with name %q: %w", bundleName, err)
+			return nil, bundleLookupError(bundleKindEnum, bundleName, err)
 		}
 		return &youtrack.BundleRef{ID: bundle.ID, Type: bundleTypeEnum}, nil
 	case fieldTypePrefixState:
 		bundle, err := r.client.GetStateBundleByName(ctx, bundleName)
 		if err != nil {
-			return nil, fmt.Errorf("could not find state bundle with name %q: %w", bundleName, err)
+			return nil, bundleLookupError(bundleKindState, bundleName, err)
 		}
 		return &youtrack.BundleRef{ID: bundle.ID, Type: bundleTypeState}, nil
 	default:
 		return nil, errors.New(errBundleNameTypeUnsupported)
 	}
+}
+
+func bundleLookupError(bundleKind, bundleName string, err error) error {
+	return fmt.Errorf("could not find %s bundle with name %q: %w", bundleKind, bundleName, err)
 }
 
 func resolveEnumCustomFieldDefaultValues(
@@ -370,26 +360,19 @@ func resolveEnumCustomFieldDefaultValues(
 	bundleID string,
 	names []string,
 ) ([]youtrack.ProjectCustomFieldValueRef, error) {
-	bundle, err := client.GetEnumBundleByID(ctx, bundleID)
-	if err != nil {
-		return nil, fmt.Errorf("could not load enum bundle %q for default_value_names: %w", bundleID, err)
-	}
+	return resolveBundleDefaultValues(ctx, bundleKindEnum, bundleID, names,
+		func(ctx context.Context, id string) (string, []youtrack.EnumBundleElement, error) {
+			bundle, err := client.GetEnumBundleByID(ctx, id)
+			if err != nil {
+				return "", nil, err
+			}
 
-	byName := make(map[string]youtrack.EnumBundleElement, len(bundle.Values))
-	for _, value := range bundle.Values {
-		byName[value.Name] = value
-	}
-
-	refs := make([]youtrack.ProjectCustomFieldValueRef, 0, len(names))
-	for _, name := range names {
-		value, exists := byName[name]
-		if !exists {
-			return nil, fmt.Errorf("default value %q not found in enum bundle %q", name, bundle.Name)
-		}
-		refs = append(refs, youtrack.ProjectCustomFieldValueRef{ID: value.ID, Name: value.Name, Type: value.Type})
-	}
-
-	return refs, nil
+			return bundle.Name, bundle.Values, nil
+		},
+		func(value youtrack.EnumBundleElement) youtrack.ProjectCustomFieldValueRef {
+			return youtrack.ProjectCustomFieldValueRef{ID: value.ID, Name: value.Name, Type: value.Type}
+		},
+	)
 }
 
 func resolveStateCustomFieldDefaultValues(
@@ -398,23 +381,50 @@ func resolveStateCustomFieldDefaultValues(
 	bundleID string,
 	names []string,
 ) ([]youtrack.ProjectCustomFieldValueRef, error) {
-	bundle, err := client.GetStateBundleByID(ctx, bundleID)
+	return resolveBundleDefaultValues(ctx, bundleKindState, bundleID, names,
+		func(ctx context.Context, id string) (string, []youtrack.StateBundleElement, error) {
+			bundle, err := client.GetStateBundleByID(ctx, id)
+			if err != nil {
+				return "", nil, err
+			}
+
+			return bundle.Name, bundle.Values, nil
+		},
+		func(value youtrack.StateBundleElement) youtrack.ProjectCustomFieldValueRef {
+			return youtrack.ProjectCustomFieldValueRef{ID: value.ID, Name: value.Name, Type: value.Type}
+		},
+	)
+}
+
+// resolveBundleDefaultValues turns default value names into value references by
+// looking them up in the bundle they must come from. load returns the bundle's
+// display name and its elements, ref converts one element to a value reference.
+func resolveBundleDefaultValues[TElement any](
+	ctx context.Context,
+	bundleKind string,
+	bundleID string,
+	names []string,
+	load func(ctx context.Context, bundleID string) (string, []TElement, error),
+	ref func(element TElement) youtrack.ProjectCustomFieldValueRef,
+) ([]youtrack.ProjectCustomFieldValueRef, error) {
+	bundleName, values, err := load(ctx, bundleID)
 	if err != nil {
-		return nil, fmt.Errorf("could not load state bundle %q for default_value_names: %w", bundleID, err)
+		return nil, fmt.Errorf("could not load %s bundle %q for default_value_names: %w", bundleKind, bundleID, err)
 	}
 
-	byName := make(map[string]youtrack.StateBundleElement, len(bundle.Values))
-	for _, value := range bundle.Values {
-		byName[value.Name] = value
+	byName := make(map[string]youtrack.ProjectCustomFieldValueRef, len(values))
+	for _, value := range values {
+		valueRef := ref(value)
+		byName[valueRef.Name] = valueRef
 	}
 
 	refs := make([]youtrack.ProjectCustomFieldValueRef, 0, len(names))
 	for _, name := range names {
-		value, exists := byName[name]
+		valueRef, exists := byName[name]
 		if !exists {
-			return nil, fmt.Errorf("default value %q not found in state bundle %q", name, bundle.Name)
+			return nil, fmt.Errorf("default value %q not found in %s bundle %q", name, bundleKind, bundleName)
 		}
-		refs = append(refs, youtrack.ProjectCustomFieldValueRef{ID: value.ID, Name: value.Name, Type: value.Type})
+		refs = append(refs, valueRef)
 	}
 
 	return refs, nil

@@ -25,6 +25,44 @@ const (
 	errServiceIDRequired = "Service ID is required to read the service"
 )
 
+// ops describes the Hub service to the shared secret-backed resource CRUD.
+func (r *serviceResource) ops() secretBackedResourceOps[serviceResourceModel, youtrack.Service] {
+	return secretBackedResourceOps[serviceResourceModel, youtrack.Service]{
+		label:         "service",
+		updateLabel:   "service",
+		errCreating:   errCreatingService,
+		errReading:    errReadingService,
+		errUpdating:   errUpdatingService,
+		errDeleting:   errDeletingService,
+		errImporting:  errImportingService,
+		errMissingID:  errMissingServiceID,
+		errIDRequired: errServiceIDRequired,
+
+		toAPI: func(ctx context.Context, model *serviceResourceModel) youtrack.Service {
+			return model.toAPIModel(ctx)
+		},
+		fromAPI: func(model *serviceResourceModel, api *youtrack.Service) {
+			model.fromAPIModel(api)
+		},
+		modelID:     func(model *serviceResourceModel) types.String { return model.ID },
+		modelSecret: func(model *serviceResourceModel) types.String { return model.Secret },
+		setSecret: func(model *serviceResourceModel, secret types.String) {
+			model.Secret = secret
+		},
+		apiID:     func(api *youtrack.Service) string { return api.ID },
+		apiSecret: func(api *youtrack.Service) string { return api.Secret },
+
+		// Hub generates the secret when the configuration omits it, so the value
+		// to persist after create comes from the response, not the request.
+		secretGeneratedByAPI: true,
+
+		create: r.client.CreateService,
+		read:   r.client.GetServiceByID,
+		update: r.client.UpdateService,
+		delete: r.client.DeleteService,
+	}
+}
+
 // serviceResourceModel maps the Terraform resource schema data.
 type serviceResourceModel struct {
 	ID                           types.String `tfsdk:"id"`

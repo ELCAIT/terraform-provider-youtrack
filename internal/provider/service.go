@@ -5,8 +5,6 @@ package provider
 
 import (
 	"context"
-	"fmt"
-	"strings"
 
 	helpers "github.com/elcait/terraform-provider-youtrack/internal/helpers"
 
@@ -186,109 +184,25 @@ func (r *serviceResource) Configure(_ context.Context, req resource.ConfigureReq
 
 // Create creates the resource and sets the initial Terraform state.
 func (r *serviceResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	var plan serviceResourceModel
-	if !helpers.GetPlanAndCheckError(ctx, req, resp, &plan) {
-		return
-	}
-
-	apiService := plan.toAPIModel(ctx)
-	created, err := r.client.CreateService(ctx, apiService)
-	if err != nil {
-		resp.Diagnostics.AddError(errCreatingService, fmt.Sprintf("Could not create service: %v", err))
-		return
-	}
-
-	// Preserve secret from what was sent/generated since the API does not return it on subsequent reads.
-	plan.fromAPIModel(created)
-	plan.Secret = types.StringValue(created.Secret)
-
-	helpers.SetStateAndCheckError(ctx, resp, plan)
+	r.ops().Create(ctx, req, resp)
 }
 
 // Read refreshes the Terraform state with the latest data.
 func (r *serviceResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
-	var state serviceResourceModel
-	if !helpers.GetStateAndCheckError(ctx, req, resp, &state) {
-		return
-	}
-
-	if !helpers.ValidateResourceID(state.ID, &resp.Diagnostics, errMissingServiceID, errServiceIDRequired) {
-		return
-	}
-
-	apiService, err := r.client.GetServiceByID(ctx, state.ID.ValueString())
-	if err != nil {
-		if youtrack.IsNotFoundError(err) {
-			resp.State.RemoveResource(ctx)
-			return
-		}
-
-		resp.Diagnostics.AddError(errReadingService, fmt.Sprintf("Could not read service: %v", err))
-		return
-	}
-
-	// Preserve secret from existing state; the API never returns it.
-	existingSecret := state.Secret
-	state.fromAPIModel(apiService)
-	state.Secret = existingSecret
-
-	helpers.SetStateAndCheckError(ctx, resp, &state)
+	r.ops().Read(ctx, req, resp)
 }
 
 // Update updates the resource and sets the updated Terraform state on success.
 func (r *serviceResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var plan serviceResourceModel
-	if !helpers.GetPlanAndCheckErrorUpdate(ctx, req, resp, &plan) {
-		return
-	}
-
-	serviceID := plan.ID.ValueString()
-	apiService := plan.toAPIModel(ctx)
-
-	updated, err := r.client.UpdateService(ctx, serviceID, apiService)
-	if err != nil {
-		resp.Diagnostics.AddError(errUpdatingService, fmt.Sprintf(helpers.ErrCouldNotUpdateFmt, "service", err))
-		return
-	}
-
-	// Preserve secret from what was sent since the API does not return it.
-	plan.fromAPIModel(updated)
-	plan.Secret = types.StringValue(apiService.Secret)
-
-	helpers.SetStateAndCheckError(ctx, resp, plan)
+	r.ops().Update(ctx, req, resp)
 }
 
 // Delete deletes the resource and removes the Terraform state on success.
 func (r *serviceResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
-	var state serviceResourceModel
-	if !helpers.GetStateAndCheckErrorDelete(ctx, req, resp, &state) {
-		return
-	}
-
-	if !helpers.HasResourceID(state.ID) {
-		return
-	}
-
-	err := r.client.DeleteService(ctx, state.ID.ValueString())
-	if err != nil && !youtrack.IsNotFoundError(err) {
-		resp.Diagnostics.AddError(errDeletingService, fmt.Sprintf("Could not delete service: %v", err))
-	}
+	r.ops().Delete(ctx, req, resp)
 }
 
 // ImportState imports the resource state by service ID.
 func (r *serviceResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	serviceID := strings.TrimSpace(req.ID)
-
-	apiService, err := r.client.GetServiceByID(ctx, serviceID)
-	if err != nil {
-		resp.Diagnostics.AddError(errImportingService, fmt.Sprintf("Could not read service with ID '%s': %v", serviceID, err))
-		return
-	}
-
-	var state serviceResourceModel
-	state.fromAPIModel(apiService)
-	// secret cannot be imported; set to empty string as a placeholder.
-	state.Secret = types.StringValue("")
-
-	helpers.SetStateAndCheckError(ctx, resp, &state)
+	r.ops().ImportState(ctx, req, resp)
 }
