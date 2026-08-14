@@ -37,32 +37,10 @@ type serviceResource struct {
 	client *youtrack.Client
 }
 
-// preserveStateWhenUnconfiguredBoolModifier keeps the prior state value for an Optional+Computed
-// bool attribute when it is left unset in configuration, instead of resending its schema Default
-// on every apply. Without this, an unrelated apply silently reverts a value that was changed
-// out-of-band (e.g. directly in Hub), because the framework resolves the Default from the raw
-// config value alone, before any plan modifier runs, regardless of what is already in state.
-type preserveStateWhenUnconfiguredBoolModifier struct{}
-
-func (m preserveStateWhenUnconfiguredBoolModifier) Description(_ context.Context) string {
-	return "Once set, preserves the prior state value when this attribute is left unset in " +
-		"configuration, instead of resetting it to the default on every apply."
-}
-
-func (m preserveStateWhenUnconfiguredBoolModifier) MarkdownDescription(ctx context.Context) string {
-	return m.Description(ctx)
-}
-
-func (m preserveStateWhenUnconfiguredBoolModifier) PlanModifyBool(_ context.Context, req planmodifier.BoolRequest, resp *planmodifier.BoolResponse) {
-	if req.State.Raw.IsNull() {
-		// Resource creation: let the schema Default apply.
-		return
-	}
-
-	if req.ConfigValue.IsNull() {
-		resp.PlanValue = req.StateValue
-	}
-}
+// preserveBoolPlanModifiers is shared by every Optional+Computed+Default bool attribute in this
+// package that can change out-of-band (e.g. directly in Hub or the YouTrack UI), so an unrelated
+// apply doesn't silently revert it back to the schema default. See helpers.PreserveStateWhenUnconfiguredBool.
+var preserveBoolPlanModifiers = []planmodifier.Bool{helpers.PreserveStateWhenUnconfiguredBool}
 
 // Metadata returns the resource type name.
 func (r *serviceResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -134,67 +112,53 @@ func (r *serviceResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Description: "Base URLs from which the service is allowed to make requests.",
 			},
 			"trusted": schema.BoolAttribute{
-				Optional:    true,
-				Computed:    true,
-				Default:     booldefault.StaticBool(false),
-				Description: "Whether the service is trusted. Trusted services skip the user consent screen. Defaults to false.",
-				PlanModifiers: []planmodifier.Bool{
-					preserveStateWhenUnconfiguredBoolModifier{},
-				},
+				Optional:      true,
+				Computed:      true,
+				Default:       booldefault.StaticBool(false),
+				Description:   "Whether the service is trusted. Trusted services skip the user consent screen. Defaults to false.",
+				PlanModifiers: preserveBoolPlanModifiers,
 			},
 			"consent_required": schema.BoolAttribute{
-				Optional:    true,
-				Computed:    true,
-				Default:     booldefault.StaticBool(true),
-				Description: "Whether Hub must ask the user for consent before granting this service access. Defaults to true.",
-				PlanModifiers: []planmodifier.Bool{
-					preserveStateWhenUnconfiguredBoolModifier{},
-				},
+				Optional:      true,
+				Computed:      true,
+				Default:       booldefault.StaticBool(true),
+				Description:   "Whether Hub must ask the user for consent before granting this service access. Defaults to true.",
+				PlanModifiers: preserveBoolPlanModifiers,
 			},
 			"client_credentials_flow_enabled": schema.BoolAttribute{
-				Optional:    true,
-				Computed:    true,
-				Default:     booldefault.StaticBool(true),
-				Description: "Whether the OAuth 2.0 client credentials grant flow is enabled for this service. Defaults to true.",
-				PlanModifiers: []planmodifier.Bool{
-					preserveStateWhenUnconfiguredBoolModifier{},
-				},
+				Optional:      true,
+				Computed:      true,
+				Default:       booldefault.StaticBool(true),
+				Description:   "Whether the OAuth 2.0 client credentials grant flow is enabled for this service. Defaults to true.",
+				PlanModifiers: preserveBoolPlanModifiers,
 			},
 			"auth_code_flow_enabled": schema.BoolAttribute{
-				Optional:    true,
-				Computed:    true,
-				Default:     booldefault.StaticBool(true),
-				Description: "Whether the OAuth 2.0 authorization code grant flow is enabled for this service. Defaults to true.",
-				PlanModifiers: []planmodifier.Bool{
-					preserveStateWhenUnconfiguredBoolModifier{},
-				},
+				Optional:      true,
+				Computed:      true,
+				Default:       booldefault.StaticBool(true),
+				Description:   "Whether the OAuth 2.0 authorization code grant flow is enabled for this service. Defaults to true.",
+				PlanModifiers: preserveBoolPlanModifiers,
 			},
 			"pkce_required": schema.BoolAttribute{
-				Optional:    true,
-				Computed:    true,
-				Default:     booldefault.StaticBool(false),
-				Description: "Whether PKCE is required for the authorization code grant flow. Defaults to false.",
-				PlanModifiers: []planmodifier.Bool{
-					preserveStateWhenUnconfiguredBoolModifier{},
-				},
+				Optional:      true,
+				Computed:      true,
+				Default:       booldefault.StaticBool(false),
+				Description:   "Whether PKCE is required for the authorization code grant flow. Defaults to false.",
+				PlanModifiers: preserveBoolPlanModifiers,
 			},
 			"implicit_flow_enabled": schema.BoolAttribute{
-				Optional:    true,
-				Computed:    true,
-				Default:     booldefault.StaticBool(true),
-				Description: "Whether the OAuth 2.0 implicit grant flow is enabled for this service. Defaults to true.",
-				PlanModifiers: []planmodifier.Bool{
-					preserveStateWhenUnconfiguredBoolModifier{},
-				},
+				Optional:      true,
+				Computed:      true,
+				Default:       booldefault.StaticBool(true),
+				Description:   "Whether the OAuth 2.0 implicit grant flow is enabled for this service. Defaults to true.",
+				PlanModifiers: preserveBoolPlanModifiers,
 			},
 			"resource_owner_flow_enabled": schema.BoolAttribute{
-				Optional:    true,
-				Computed:    true,
-				Default:     booldefault.StaticBool(true),
-				Description: "Whether the OAuth 2.0 resource owner password credentials grant flow is enabled for this service. Defaults to true.",
-				PlanModifiers: []planmodifier.Bool{
-					preserveStateWhenUnconfiguredBoolModifier{},
-				},
+				Optional:      true,
+				Computed:      true,
+				Default:       booldefault.StaticBool(true),
+				Description:   "Whether the OAuth 2.0 resource owner password credentials grant flow is enabled for this service. Defaults to true.",
+				PlanModifiers: preserveBoolPlanModifiers,
 			},
 			"secret": schema.StringAttribute{
 				Optional:  true,

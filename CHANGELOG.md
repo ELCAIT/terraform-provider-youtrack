@@ -5,7 +5,11 @@ IMPROVEMENTS:
 
 BUG FIXES:
 - Fix `youtrack_service` silently reverting `trusted`, `consent_required`, and the OAuth grant flow attributes (`client_credentials_flow_enabled`, `auth_code_flow_enabled`, `pkce_required`, `implicit_flow_enabled`, `resource_owner_flow_enabled`) back to their schema defaults on any unrelated `apply` when left unset in configuration, which undid changes made directly in Hub.
+- Fix `youtrack_issue_link_type` silently reverting `directed` and `aggregation` back to their schema defaults on any unrelated `apply` when left unset in configuration.
+- Fix `youtrack_system_settings` silently reverting `administrator_email`, `max_export_items`, and `max_upload_file_size` back to their schema defaults on any unrelated `apply` when left unset in configuration, which wiped values set directly in the YouTrack UI.
+- Fix `youtrack_project` being destroyed and recreated on an unrelated `apply` when `template` was changed outside of Terraform and left unset in configuration: the schema default was resolved before the `RequiresReplace` check, making an unchanged project look like it needed replacement.
 - Fix global time tracking work item type deletion polling aborting on the first transient list error instead of retrying, and extend the post-mutation consistency wait to also cover work item type creates and updates, not just deletes.
+- Fix the work item type list retry and post-mutation settle loops treating ordinary transient failures (5xx responses, `408`, `429`, and connection-level errors) as permanent, so a single bad-gateway response from a proxy in front of YouTrack no longer abandons a mutation that already succeeded. Only definitive client errors (e.g. `401`, `403`, `404`) now fail fast.
 
 ## 1.1.0
 FEATURES:

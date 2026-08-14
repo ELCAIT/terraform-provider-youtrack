@@ -2,7 +2,9 @@ package settings
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 	"time"
@@ -26,14 +28,18 @@ const (
 	errConvertingNestedTimeTracking = "Failed to convert nested time tracking attributes"
 	errManagingWorkItemTypes        = "Error managing work item types"
 	errWorkItemTypeEmptyName        = "each work_item_types entry must have a non-empty name"
+	warnWorkItemTypesNotConfirmed   = "Work item type changes not fully confirmed"
 	globalTimeTrackingSingletonID   = "global"
 	// workItemTypeBeingRemovedSuffix is appended by YouTrack when a work item type
 	// is soft-deleted. The provider filters these out so they never appear in state.
 	workItemTypeBeingRemovedSuffix = " (being removed)"
 	defaultWorkMinutesADay         = 480
-	workItemTypesReadMaxAttempts   = 8
-	workItemTypesReadRetryDelay    = 500 * time.Millisecond
-	workItemTypeSettleMaxAttempts  = 20
+	// workItemTypePollRetryDelay is the pause between polls shared by both the read-retry (up to
+	// workItemTypesReadMaxAttempts) and post-mutation settle-wait (up to workItemTypeSettleMaxAttempts)
+	// loops below; they poll the same endpoint for the same kind of eventual-consistency flakiness.
+	workItemTypePollRetryDelay    = 500 * time.Millisecond
+	workItemTypesReadMaxAttempts  = 8
+	workItemTypeSettleMaxAttempts = 20
 )
 
 // computedWhenUnconfiguredSetModifier marks a set attribute as (known after apply)
@@ -361,19 +367,27 @@ var (
 
 // getGlobalTimeTrackingSettingsAndHandleError fetches global time tracking settings via API and handles errors.
 func (r *globalTimeTrackingSettingsResource) getGlobalTimeTrackingSettingsAndHandleError(ctx context.Context, diagnostics *diag.Diagnostics) (youtrack.GlobalTimeTrackingSettings, bool) {
-	settings, err := r.client.GetGlobalTimeTrackingSettings(ctx)
+	workItemTypes, err := r.listWorkItemTypesWithRetry(ctx)
 	if err != nil {
 		diagnostics.AddError(
-			errUnableToReadTimeTracking,
+			errUnableToReadWorkItemTypes,
 			err.Error(),
 		)
 		return youtrack.GlobalTimeTrackingSettings{}, false
 	}
 
-	workItemTypes, err := r.listWorkItemTypesWithRetry(ctx)
+	return r.getGlobalTimeTrackingSettingsWithWorkItemTypes(ctx, workItemTypes, diagnostics)
+}
+
+// getGlobalTimeTrackingSettingsWithWorkItemTypes fetches global time tracking settings via API and
+// combines them with an already-known-fresh work item types list, avoiding a redundant list call
+// right after a caller (e.g. syncWorkItemTypesIfConfigured) has already confirmed the list reflects
+// a just-applied mutation.
+func (r *globalTimeTrackingSettingsResource) getGlobalTimeTrackingSettingsWithWorkItemTypes(ctx context.Context, workItemTypes []youtrack.WorkItemType, diagnostics *diag.Diagnostics) (youtrack.GlobalTimeTrackingSettings, bool) {
+	settings, err := r.client.GetGlobalTimeTrackingSettings(ctx)
 	if err != nil {
 		diagnostics.AddError(
-			errUnableToReadWorkItemTypes,
+			errUnableToReadTimeTracking,
 			err.Error(),
 		)
 		return youtrack.GlobalTimeTrackingSettings{}, false
@@ -394,26 +408,16 @@ func (r *globalTimeTrackingSettingsResource) listWorkItemTypesWithRetry(ctx cont
 		}
 
 		lastErr = err
-		if !isTransientRemovedWorkItemTypeListError(err) || attempt == workItemTypesReadMaxAttempts {
+		if !isRetryableWorkItemTypeListError(err) || attempt == workItemTypesReadMaxAttempts {
 			break
 		}
 
-		if err := waitOrContextDone(ctx, workItemTypesReadRetryDelay); err != nil {
+		if err := helpers.WaitOrContextDone(ctx, workItemTypePollRetryDelay); err != nil {
 			return nil, err
 		}
 	}
 
 	return nil, lastErr
-}
-
-// waitOrContextDone pauses for delay, returning ctx.Err() if the context is cancelled first.
-func waitOrContextDone(ctx context.Context, delay time.Duration) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-time.After(delay):
-		return nil
-	}
 }
 
 func isTransientRemovedWorkItemTypeListError(err error) bool {
@@ -423,6 +427,36 @@ func isTransientRemovedWorkItemTypeListError(err error) bool {
 
 	errMsg := strings.ToLower(err.Error())
 	return strings.Contains(errMsg, "workitemtype[") && strings.Contains(errMsg, "was removed")
+}
+
+// isRetryableWorkItemTypeListError reports whether a failed work item type list read is worth
+// polling again. Besides the classified "was removed" error YouTrack returns right after a
+// deletion, this covers the ordinary transient failures a YouTrack instance behind a proxy
+// produces — 5xx responses, 408/429, and transport errors that never reached the API at all.
+// Only a definitive client error (401/403/404, a malformed request) is treated as permanent,
+// because no amount of retrying will change the outcome.
+func isRetryableWorkItemTypeListError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	if isTransientRemovedWorkItemTypeListError(err) {
+		return true
+	}
+
+	var httpErr *youtrack.HTTPError
+	if !errors.As(err, &httpErr) {
+		// Transport failure or an error the client didn't classify: assume transient, since
+		// giving up on a connection reset would abandon a mutation that already succeeded.
+		return true
+	}
+
+	switch httpErr.StatusCode {
+	case http.StatusRequestTimeout, http.StatusTooManyRequests:
+		return true
+	default:
+		return httpErr.StatusCode >= http.StatusInternalServerError
+	}
 }
 
 // updateWorkTimeSettingsAndHandleError updates work time settings via API and handles errors.
@@ -465,11 +499,17 @@ func (r *globalTimeTrackingSettingsResource) applyWorkTimeSettingsAndUpdateModel
 		return false
 	}
 
-	if !r.syncWorkItemTypesIfConfigured(ctx, plan, diagnostics) {
+	syncedWorkItemTypes, ok := r.syncWorkItemTypesIfConfigured(ctx, plan, diagnostics)
+	if !ok {
 		return false
 	}
 
-	globalSettings, ok := r.getGlobalTimeTrackingSettingsAndHandleError(ctx, diagnostics)
+	var globalSettings youtrack.GlobalTimeTrackingSettings
+	if syncedWorkItemTypes.known {
+		globalSettings, ok = r.getGlobalTimeTrackingSettingsWithWorkItemTypes(ctx, syncedWorkItemTypes.types, diagnostics)
+	} else {
+		globalSettings, ok = r.getGlobalTimeTrackingSettingsAndHandleError(ctx, diagnostics)
+	}
 	if !ok {
 		return false
 	}
@@ -656,36 +696,52 @@ func (r *globalTimeTrackingSettingsResource) applyWorkItemTypeChanges(ctx contex
 	return true
 }
 
+// workItemTypeSyncResult carries the work item types syncWorkItemTypesIfConfigured has on hand.
+// types is only meaningful when known is true; when known is false the caller must re-fetch,
+// because the list either was never read or could not be confirmed to reflect the mutation.
+// A known-good list may legitimately be nil (the API can return null for an empty list), which
+// is why this is a separate flag rather than a nil check on types.
+type workItemTypeSyncResult struct {
+	types []youtrack.WorkItemType
+	known bool
+}
+
 // syncWorkItemTypesIfConfigured reconciles work item types in YouTrack against the plan.
 // It is a no-op when work_item_types is null or unknown in the plan.
-func (r *globalTimeTrackingSettingsResource) syncWorkItemTypesIfConfigured(ctx context.Context, plan *globalTimeTrackingSettingsResourceModel, diagnostics *diag.Diagnostics) bool {
+//
+// On success it also returns the most up-to-date work item types list it has on hand — the
+// pre-mutation list when no changes were needed, or the freshly settled post-mutation list
+// otherwise — so callers can reuse it instead of re-fetching.
+func (r *globalTimeTrackingSettingsResource) syncWorkItemTypesIfConfigured(ctx context.Context, plan *globalTimeTrackingSettingsResourceModel, diagnostics *diag.Diagnostics) (workItemTypeSyncResult, bool) {
 	if plan.WorkItemTypes.IsNull() || plan.WorkItemTypes.IsUnknown() {
-		return true
+		return workItemTypeSyncResult{}, true
 	}
 
 	var planTypes []globalWorkItemTypeModel
 	if diags := plan.WorkItemTypes.ElementsAs(ctx, &planTypes, false); diags.HasError() {
 		diagnostics.Append(diags...)
-		return false
+		return workItemTypeSyncResult{}, false
 	}
 
 	currentTypes, err := r.listWorkItemTypesWithRetry(ctx)
 	if err != nil {
 		diagnostics.AddError(errManagingWorkItemTypes, err.Error())
-		return false
+		return workItemTypeSyncResult{}, false
 	}
 
 	changes, err := planWorkItemTypeChanges(planTypes, currentTypes)
 	if err != nil {
 		diagnostics.AddError(errManagingWorkItemTypes, err.Error())
-		return false
+		return workItemTypeSyncResult{}, false
 	}
 
 	if !r.applyWorkItemTypeChanges(ctx, changes, diagnostics) {
-		return false
+		return workItemTypeSyncResult{}, false
 	}
 
-	return r.waitForWorkItemTypeChangesToSettle(ctx, changes, diagnostics)
+	settledTypes, settled := r.waitForWorkItemTypeChangesToSettle(ctx, currentTypes, changes, diagnostics)
+
+	return workItemTypeSyncResult{types: settledTypes, known: settled}, true
 }
 
 // deletedWorkItemTypeIDs collects the IDs slated for deletion across the given changes.
@@ -743,43 +799,60 @@ func workItemTypeChangesSettled(currentTypes []youtrack.WorkItemType, deletedIDs
 }
 
 // waitForWorkItemTypeChangesToSettle polls the API until it reflects the given create/update/delete
-// changes, guarding against the API briefly returning stale data right after a mutation. Unlike
-// listWorkItemTypesWithRetry (which only retries a specific transient error), this retries any list
-// error, since the whole point of this budget is to ride out post-mutation API flakiness.
-func (r *globalTimeTrackingSettingsResource) waitForWorkItemTypeChangesToSettle(ctx context.Context, changes []workItemTypeChange, diagnostics *diag.Diagnostics) bool {
+// changes, guarding against the API briefly returning stale data right after a mutation. It keeps
+// polling for any retryable read failure (see isRetryableWorkItemTypeListError) as well as the
+// "listed fine but not settled yet" case, and fails fast only on a definitive client error, rather
+// than burning the whole budget on an error that can never resolve.
+//
+// The changes were already applied successfully by the time this runs, so a failure to confirm them
+// is reported as a warning, not an error: failing the apply here would report a false failure for a
+// mutation that already succeeded, and leave YouTrack and Terraform state out of sync until the next
+// refresh re-attempts a no-longer-needed create/delete.
+//
+// The returned bool — not the returned slice — says whether the list is usable: true with
+// preChangeTypes when there was nothing to settle, true with the freshly confirmed list on success,
+// and false when settling could not be confirmed and the caller must re-fetch instead. A successful
+// list can itself be nil (the API may return null for an empty list), so callers must not infer
+// "could not confirm" from a nil slice.
+func (r *globalTimeTrackingSettingsResource) waitForWorkItemTypeChangesToSettle(ctx context.Context, preChangeTypes []youtrack.WorkItemType, changes []workItemTypeChange, diagnostics *diag.Diagnostics) ([]youtrack.WorkItemType, bool) {
 	deletedIDs := deletedWorkItemTypeIDs(changes)
 	expectedByName := expectedWorkItemTypesByName(changes)
 	if len(deletedIDs) == 0 && len(expectedByName) == 0 {
-		return true
+		return preChangeTypes, true
 	}
 
 	var lastErr error
 	for attempt := 1; attempt <= workItemTypeSettleMaxAttempts; attempt++ {
 		currentTypes, err := r.client.ListWorkItemTypes(ctx)
-		if err == nil {
-			lastErr = nil
+		switch {
+		case err == nil:
 			if workItemTypeChangesSettled(currentTypes, deletedIDs, expectedByName) {
-				return true
+				return currentTypes, true
 			}
-		} else {
+			lastErr = nil
+		case isRetryableWorkItemTypeListError(err):
 			lastErr = err
+		default:
+			diagnostics.AddWarning(warnWorkItemTypesNotConfirmed,
+				fmt.Sprintf("could not confirm work item type changes were reflected by the API; work_item_types may show drift until the next refresh: %v", err))
+			return nil, false
 		}
 
 		if attempt == workItemTypeSettleMaxAttempts {
 			break
 		}
 
-		if err := waitOrContextDone(ctx, workItemTypesReadRetryDelay); err != nil {
-			diagnostics.AddError(errManagingWorkItemTypes, err.Error())
-			return false
+		if err := helpers.WaitOrContextDone(ctx, workItemTypePollRetryDelay); err != nil {
+			diagnostics.AddWarning(warnWorkItemTypesNotConfirmed,
+				fmt.Sprintf("stopped waiting for work item type changes to be reflected by the API: %v", err))
+			return nil, false
 		}
 	}
 
+	detail := "timed out waiting for work item type changes to be reflected by the API; work_item_types may show drift until the next refresh"
 	if lastErr != nil {
-		diagnostics.AddError(errUnableToReadWorkItemTypes, lastErr.Error())
-		return false
+		detail = fmt.Sprintf("%s (last read error: %v)", detail, lastErr)
 	}
-
-	diagnostics.AddError(errManagingWorkItemTypes, "timed out waiting for work item type changes to be reflected by the API")
-	return false
+	diagnostics.AddWarning(warnWorkItemTypesNotConfirmed, detail)
+	return nil, false
 }

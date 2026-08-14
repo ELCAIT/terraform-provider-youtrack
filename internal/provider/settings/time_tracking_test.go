@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -200,6 +201,76 @@ func TestIsTransientRemovedWorkItemTypeListError(t *testing.T) {
 	}
 }
 
+func TestIsRetryableWorkItemTypeListError(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "classified removed work item type error",
+			err:  errors.New("failed to list work item types: WorkItemType[178-152] was removed."),
+			want: true,
+		},
+		{
+			name: "server error",
+			err:  &youtrack.HTTPError{StatusCode: http.StatusInternalServerError},
+			want: true,
+		},
+		{
+			name: "bad gateway",
+			err:  &youtrack.HTTPError{StatusCode: http.StatusBadGateway},
+			want: true,
+		},
+		{
+			name: "rate limited",
+			err:  &youtrack.HTTPError{StatusCode: http.StatusTooManyRequests},
+			want: true,
+		},
+		{
+			name: "request timeout",
+			err:  &youtrack.HTTPError{StatusCode: http.StatusRequestTimeout},
+			want: true,
+		},
+		{
+			name: "transport error carries no status code",
+			err:  errors.New("dial tcp: connection reset by peer"),
+			want: true,
+		},
+		{
+			name: "forbidden is permanent",
+			err:  &youtrack.HTTPError{StatusCode: http.StatusForbidden},
+			want: false,
+		},
+		{
+			name: "not found is permanent",
+			err:  &youtrack.HTTPError{StatusCode: http.StatusNotFound},
+			want: false,
+		},
+		{
+			name: "wrapped permanent error stays permanent",
+			err:  fmt.Errorf("listing work item types: %w", &youtrack.HTTPError{StatusCode: http.StatusUnauthorized}),
+			want: false,
+		},
+		{
+			name: "nil error",
+			err:  nil,
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := isRetryableWorkItemTypeListError(tt.err); got != tt.want {
+				t.Fatalf("isRetryableWorkItemTypeListError() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func makeWorkItemTypeModel(autoAttached bool) globalWorkItemTypeModel {
 	return globalWorkItemTypeModel{
 		Name:         types.StringValue(testWorkItemType),
@@ -354,29 +425,6 @@ func TestPlanWorkItemTypeChanges(t *testing.T) {
 	}
 }
 
-func TestWaitOrContextDone(t *testing.T) {
-	t.Parallel()
-
-	t.Run("returns nil once the delay elapses", func(t *testing.T) {
-		t.Parallel()
-
-		if err := waitOrContextDone(context.Background(), time.Millisecond); err != nil {
-			t.Fatalf("expected nil error, got %v", err)
-		}
-	})
-
-	t.Run("returns ctx error when cancelled first", func(t *testing.T) {
-		t.Parallel()
-
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
-
-		if err := waitOrContextDone(ctx, time.Second); err == nil {
-			t.Fatal("expected an error when the context is already cancelled")
-		}
-	})
-}
-
 func TestWorkItemTypeChangesSettled(t *testing.T) {
 	t.Parallel()
 
@@ -447,6 +495,24 @@ func TestWorkItemTypeChangesSettled(t *testing.T) {
 
 func startWorkItemTypesServer(t *testing.T, handler func(attempt int) (status int, body []youtrack.WorkItemType)) *youtrack.Client {
 	t.Helper()
+	return startWorkItemTypesServerRaw(t, func(attempt int) (int, []byte) {
+		status, body := handler(attempt)
+		if body == nil {
+			return status, nil
+		}
+		encoded, err := json.Marshal(body)
+		if err != nil {
+			t.Fatalf("failed to encode work item types response: %v", err)
+		}
+		return status, encoded
+	})
+}
+
+// startWorkItemTypesServerRaw is like startWorkItemTypesServer but hands the handler direct control
+// over the raw response body, so tests can simulate error payloads (e.g. the transient
+// "WorkItemType[...] was removed" case) rather than only successful work item type lists.
+func startWorkItemTypesServerRaw(t *testing.T, handler func(attempt int) (status int, body []byte)) *youtrack.Client {
+	t.Helper()
 
 	attempt := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -459,8 +525,8 @@ func startWorkItemTypesServer(t *testing.T, handler func(attempt int) (status in
 		status, body := handler(attempt)
 		w.WriteHeader(status)
 		if body != nil {
-			if err := json.NewEncoder(w).Encode(body); err != nil {
-				t.Fatalf("failed to encode work item types response: %v", err)
+			if _, err := w.Write(body); err != nil {
+				t.Fatalf("failed to write work item types response: %v", err)
 			}
 		}
 	}))
@@ -480,10 +546,15 @@ func TestWaitForWorkItemTypeChangesToSettleNoOpWithoutRelevantChanges(t *testing
 	r := &globalTimeTrackingSettingsResource{}
 	var diagnostics diag.Diagnostics
 
-	if !r.waitForWorkItemTypeChangesToSettle(context.Background(), []workItemTypeChange{}, &diagnostics) {
-		t.Fatalf("expected no-op success, got diagnostics: %v", diagnostics)
+	preChangeTypes := []youtrack.WorkItemType{{ID: testWorkItemTypeID, Name: testWorkItemType, AutoAttached: true}}
+	got, settled := r.waitForWorkItemTypeChangesToSettle(context.Background(), preChangeTypes, []workItemTypeChange{}, &diagnostics)
+	if !settled {
+		t.Fatalf("expected nothing-to-settle to report a usable list")
 	}
-	if diagnostics.HasError() {
+	if len(got) != 1 || got[0].ID != testWorkItemTypeID {
+		t.Fatalf("expected the pre-change list to be returned unchanged, got %v", got)
+	}
+	if diagnostics.HasError() || len(diagnostics.Warnings()) != 0 {
 		t.Fatalf("unexpected diagnostics: %v", diagnostics)
 	}
 }
@@ -491,24 +562,80 @@ func TestWaitForWorkItemTypeChangesToSettleNoOpWithoutRelevantChanges(t *testing
 func TestWaitForWorkItemTypeChangesToSettleRetriesPastTransientListError(t *testing.T) {
 	t.Parallel()
 
-	client := startWorkItemTypesServer(t, func(attempt int) (int, []youtrack.WorkItemType) {
+	client := startWorkItemTypesServerRaw(t, func(attempt int) (int, []byte) {
 		if attempt == 1 {
-			// Simulate a transient failure unrelated to the "was removed" case that
-			// listWorkItemTypesWithRetry special-cases, e.g. a 502 from a load balancer.
-			return http.StatusBadGateway, nil
+			// The classified transient error listWorkItemTypesWithRetry also special-cases.
+			return http.StatusInternalServerError, []byte(`{"error_description":"WorkItemType[` + testWorkItemTypeID + `] was removed."}`)
 		}
-		return http.StatusOK, []youtrack.WorkItemType{}
+		return http.StatusOK, []byte("[]")
 	})
 
 	r := &globalTimeTrackingSettingsResource{client: client}
 	var diagnostics diag.Diagnostics
 
 	changes := []workItemTypeChange{{deleteID: testWorkItemTypeID}}
-	if !r.waitForWorkItemTypeChangesToSettle(context.Background(), changes, &diagnostics) {
-		t.Fatalf("expected retry to succeed, got diagnostics: %v", diagnostics)
+	_, settled := r.waitForWorkItemTypeChangesToSettle(context.Background(), nil, changes, &diagnostics)
+	if !settled {
+		t.Fatalf("expected retry to succeed with a settled list, got diagnostics: %v", diagnostics)
+	}
+	if diagnostics.HasError() || len(diagnostics.Warnings()) != 0 {
+		t.Fatalf("unexpected diagnostics: %v", diagnostics)
+	}
+}
+
+// TestWaitForWorkItemTypeChangesToSettleRetriesPastTransientServerError covers the ordinary
+// infrastructure flakiness case: a proxy in front of YouTrack returns a single 502 while we poll
+// for confirmation. The mutation already succeeded, so this must be ridden out rather than
+// abandoned — otherwise state is left showing pre-mutation work item types.
+func TestWaitForWorkItemTypeChangesToSettleRetriesPastTransientServerError(t *testing.T) {
+	t.Parallel()
+
+	client := startWorkItemTypesServerRaw(t, func(attempt int) (int, []byte) {
+		if attempt == 1 {
+			return http.StatusBadGateway, []byte("bad gateway")
+		}
+		return http.StatusOK, []byte("[]")
+	})
+
+	r := &globalTimeTrackingSettingsResource{client: client}
+	var diagnostics diag.Diagnostics
+
+	changes := []workItemTypeChange{{deleteID: testWorkItemTypeID}}
+	_, settled := r.waitForWorkItemTypeChangesToSettle(context.Background(), nil, changes, &diagnostics)
+	if !settled {
+		t.Fatalf("expected a 502 to be retried, got diagnostics: %v", diagnostics)
+	}
+	if diagnostics.HasError() || len(diagnostics.Warnings()) != 0 {
+		t.Fatalf("unexpected diagnostics: %v", diagnostics)
+	}
+}
+
+func TestWaitForWorkItemTypeChangesToSettleFailsFastOnPermanentError(t *testing.T) {
+	t.Parallel()
+
+	var calls int
+	client := startWorkItemTypesServer(t, func(_ int) (int, []youtrack.WorkItemType) {
+		calls++
+		// A definitive client error — retrying can never make this succeed.
+		return http.StatusForbidden, nil
+	})
+
+	r := &globalTimeTrackingSettingsResource{client: client}
+	var diagnostics diag.Diagnostics
+
+	changes := []workItemTypeChange{{deleteID: testWorkItemTypeID}}
+	_, settled := r.waitForWorkItemTypeChangesToSettle(context.Background(), nil, changes, &diagnostics)
+	if settled {
+		t.Fatalf("expected a permanent error to report an unusable list")
+	}
+	if calls != 1 {
+		t.Fatalf("expected exactly one attempt for a permanent error, got %d", calls)
 	}
 	if diagnostics.HasError() {
-		t.Fatalf("unexpected diagnostics: %v", diagnostics)
+		t.Fatalf("expected a warning, not an error, since the mutation already succeeded: %v", diagnostics)
+	}
+	if len(diagnostics.Warnings()) != 1 {
+		t.Fatalf("expected exactly one warning, got %v", diagnostics.Warnings())
 	}
 }
 
@@ -527,10 +654,14 @@ func TestWaitForWorkItemTypeChangesToSettleTimesOut(t *testing.T) {
 	defer cancel()
 
 	changes := []workItemTypeChange{{deleteID: testWorkItemTypeID}}
-	if r.waitForWorkItemTypeChangesToSettle(ctx, changes, &diagnostics) {
-		t.Fatal("expected failure once the context deadline is exceeded")
+	_, settled := r.waitForWorkItemTypeChangesToSettle(ctx, nil, changes, &diagnostics)
+	if settled {
+		t.Fatalf("expected an unusable list once the context deadline is exceeded")
 	}
-	if !diagnostics.HasError() {
-		t.Fatal("expected diagnostics to report the timeout")
+	if diagnostics.HasError() {
+		t.Fatalf("expected a warning, not an error, since the mutation already succeeded: %v", diagnostics)
+	}
+	if len(diagnostics.Warnings()) != 1 {
+		t.Fatalf("expected diagnostics to report exactly one warning about the timeout, got %v", diagnostics.Warnings())
 	}
 }

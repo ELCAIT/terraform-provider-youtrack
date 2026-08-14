@@ -63,10 +63,11 @@ func (r *stateBundleResource) Metadata(_ context.Context, req resource.MetadataR
 func (r *stateBundleResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	valueAttributes := bundleCommonValueAttributes("state")
 	valueAttributes["is_resolved"] = schema.BoolAttribute{
-		Optional:    true,
-		Computed:    true,
-		Default:     booldefault.StaticBool(false),
-		Description: "Whether issues in this state are considered resolved.",
+		Optional:      true,
+		Computed:      true,
+		Default:       booldefault.StaticBool(false),
+		Description:   "Whether issues in this state are considered resolved.",
+		PlanModifiers: preserveBoolPlanModifiers,
 	}
 
 	resp.Schema = schema.Schema{

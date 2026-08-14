@@ -97,17 +97,23 @@ func (r *projectResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Description: "The login (username) of the user to set as the project owner.",
 			},
 			"archived": schema.BoolAttribute{
-				Optional:    true,
-				Computed:    true,
-				Default:     booldefault.StaticBool(false),
-				Description: "Whether the project is archived.",
+				Optional:      true,
+				Computed:      true,
+				Default:       booldefault.StaticBool(false),
+				Description:   "Whether the project is archived.",
+				PlanModifiers: preserveBoolPlanModifiers,
 			},
 			"template": schema.BoolAttribute{
 				Optional:    true,
 				Computed:    true,
 				Default:     booldefault.StaticBool(false),
 				Description: "Whether this project is a template.",
+				// The preserve modifier must run before RequiresReplace: without it, a project
+				// whose template flag was flipped out-of-band and left unset in configuration
+				// plans as default(false) != state(true), so RequiresReplace would destroy and
+				// recreate the project on an otherwise unrelated apply.
 				PlanModifiers: []planmodifier.Bool{
+					helpers.PreserveStateWhenUnconfiguredBool,
 					boolplanmodifier.RequiresReplace(),
 				},
 			},

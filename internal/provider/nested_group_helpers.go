@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	helpers "github.com/elcait/terraform-provider-youtrack/internal/helpers"
 
@@ -162,8 +161,8 @@ func (r *nestedGroupResource) resolveSubGroupByNameWithRetry(ctx context.Context
 			return nil, err
 		}
 
-		if !waitForSubGroupRetry(ctx, subGroupResolveRetryDelay) {
-			return nil, ctx.Err()
+		if err := helpers.WaitOrContextDone(ctx, subGroupResolveRetryDelay); err != nil {
+			return nil, err
 		}
 	}
 
@@ -176,16 +175,4 @@ func shouldRetrySubGroupResolution(err error) bool {
 	}
 
 	return strings.Contains(strings.ToLower(err.Error()), errNotFoundFragment)
-}
-
-func waitForSubGroupRetry(ctx context.Context, delay time.Duration) bool {
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
-
-	select {
-	case <-ctx.Done():
-		return false
-	case <-timer.C:
-		return true
-	}
 }
