@@ -106,10 +106,11 @@ func (r *projectCustomFieldResource) Schema(_ context.Context, _ resource.Schema
 				},
 			},
 			"can_be_empty": schema.BoolAttribute{
-				Optional:    true,
-				Computed:    true,
-				Default:     booldefault.StaticBool(true),
-				Description: "Whether the custom field can have an empty value.",
+				Optional:      true,
+				Computed:      true,
+				Default:       booldefault.StaticBool(true),
+				Description:   "Whether the custom field can have an empty value.",
+				PlanModifiers: preserveBoolPlanModifiers,
 			},
 			"empty_field_text": schema.StringAttribute{
 				Optional:    true,
@@ -120,10 +121,11 @@ func (r *projectCustomFieldResource) Schema(_ context.Context, _ resource.Schema
 				},
 			},
 			"is_public": schema.BoolAttribute{
-				Optional:    true,
-				Computed:    true,
-				Default:     booldefault.StaticBool(true),
-				Description: "Whether basic Read/Update Issue permissions are sufficient to access this field.",
+				Optional:      true,
+				Computed:      true,
+				Default:       booldefault.StaticBool(true),
+				Description:   "Whether basic Read/Update Issue permissions are sufficient to access this field.",
+				PlanModifiers: preserveBoolPlanModifiers,
 			},
 			"bundle_name": schema.StringAttribute{
 				Optional:    true,

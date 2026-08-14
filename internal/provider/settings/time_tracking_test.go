@@ -2,11 +2,17 @@ package settings
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
 	youtrack "github.com/elcait/youtrack-api-client/client"
 
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
@@ -24,6 +30,8 @@ const (
 
 	msgExpectedConversionToSucceed = "expected conversion to succeed"
 	msgUnexpectedMinutesADay       = "unexpected minutes_a_day: got %d want %d"
+
+	workItemTypesTestPath = "/api/admin/timeTrackingSettings/workItemTypes"
 )
 
 func makeTestWorkDaysList(t *testing.T, days []int64) types.List {
@@ -193,6 +201,76 @@ func TestIsTransientRemovedWorkItemTypeListError(t *testing.T) {
 	}
 }
 
+func TestIsRetryableWorkItemTypeListError(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "classified removed work item type error",
+			err:  errors.New("failed to list work item types: WorkItemType[178-152] was removed."),
+			want: true,
+		},
+		{
+			name: "server error",
+			err:  &youtrack.HTTPError{StatusCode: http.StatusInternalServerError},
+			want: true,
+		},
+		{
+			name: "bad gateway",
+			err:  &youtrack.HTTPError{StatusCode: http.StatusBadGateway},
+			want: true,
+		},
+		{
+			name: "rate limited",
+			err:  &youtrack.HTTPError{StatusCode: http.StatusTooManyRequests},
+			want: true,
+		},
+		{
+			name: "request timeout",
+			err:  &youtrack.HTTPError{StatusCode: http.StatusRequestTimeout},
+			want: true,
+		},
+		{
+			name: "transport error carries no status code",
+			err:  errors.New("dial tcp: connection reset by peer"),
+			want: true,
+		},
+		{
+			name: "forbidden is permanent",
+			err:  &youtrack.HTTPError{StatusCode: http.StatusForbidden},
+			want: false,
+		},
+		{
+			name: "not found is permanent",
+			err:  &youtrack.HTTPError{StatusCode: http.StatusNotFound},
+			want: false,
+		},
+		{
+			name: "wrapped permanent error stays permanent",
+			err:  fmt.Errorf("listing work item types: %w", &youtrack.HTTPError{StatusCode: http.StatusUnauthorized}),
+			want: false,
+		},
+		{
+			name: "nil error",
+			err:  nil,
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := isRetryableWorkItemTypeListError(tt.err); got != tt.want {
+				t.Fatalf("isRetryableWorkItemTypeListError() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func makeWorkItemTypeModel(autoAttached bool) globalWorkItemTypeModel {
 	return globalWorkItemTypeModel{
 		Name:         types.StringValue(testWorkItemType),
@@ -344,5 +422,246 @@ func TestPlanWorkItemTypeChanges(t *testing.T) {
 			t.Parallel()
 			assertPlanWorkItemTypeChanges(t, tc.plan, tc.current, tc.wantChanges, tc.wantErr, tc.checkChange)
 		})
+	}
+}
+
+func TestWorkItemTypeChangesSettled(t *testing.T) {
+	t.Parallel()
+
+	deletedIDs := map[string]struct{}{testWorkItemTypeID: {}}
+	expectedByName := map[string]bool{testWorkItemType: true}
+
+	tests := []struct {
+		name           string
+		current        []youtrack.WorkItemType
+		deletedIDs     map[string]struct{}
+		expectedByName map[string]bool
+		want           bool
+	}{
+		{
+			name:           "settled when there is nothing to check",
+			current:        []youtrack.WorkItemType{},
+			deletedIDs:     map[string]struct{}{},
+			expectedByName: map[string]bool{},
+			want:           true,
+		},
+		{
+			name:           "not settled while a deleted ID is still present",
+			current:        []youtrack.WorkItemType{{ID: testWorkItemTypeID, Name: testWorkItemType, AutoAttached: true}},
+			deletedIDs:     deletedIDs,
+			expectedByName: map[string]bool{},
+			want:           false,
+		},
+		{
+			name:           "settled once the deleted ID is gone",
+			current:        []youtrack.WorkItemType{},
+			deletedIDs:     deletedIDs,
+			expectedByName: map[string]bool{},
+			want:           true,
+		},
+		{
+			name:           "not settled while a created type is missing",
+			current:        []youtrack.WorkItemType{},
+			deletedIDs:     map[string]struct{}{},
+			expectedByName: expectedByName,
+			want:           false,
+		},
+		{
+			name:           "not settled while auto_attached does not match yet",
+			current:        []youtrack.WorkItemType{{ID: testWorkItemTypeID, Name: testWorkItemType, AutoAttached: false}},
+			deletedIDs:     map[string]struct{}{},
+			expectedByName: expectedByName,
+			want:           false,
+		},
+		{
+			name:           "settled once the created type matches",
+			current:        []youtrack.WorkItemType{{ID: testWorkItemTypeID, Name: testWorkItemType, AutoAttached: true}},
+			deletedIDs:     map[string]struct{}{},
+			expectedByName: expectedByName,
+			want:           true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := workItemTypeChangesSettled(tc.current, tc.deletedIDs, tc.expectedByName)
+			if got != tc.want {
+				t.Fatalf("workItemTypeChangesSettled() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func startWorkItemTypesServer(t *testing.T, handler func(attempt int) (status int, body []youtrack.WorkItemType)) *youtrack.Client {
+	t.Helper()
+	return startWorkItemTypesServerRaw(t, func(attempt int) (int, []byte) {
+		status, body := handler(attempt)
+		if body == nil {
+			return status, nil
+		}
+		encoded, err := json.Marshal(body)
+		if err != nil {
+			t.Fatalf("failed to encode work item types response: %v", err)
+		}
+		return status, encoded
+	})
+}
+
+// startWorkItemTypesServerRaw is like startWorkItemTypesServer but hands the handler direct control
+// over the raw response body, so tests can simulate error payloads (e.g. the transient
+// "WorkItemType[...] was removed" case) rather than only successful work item type lists.
+func startWorkItemTypesServerRaw(t *testing.T, handler func(attempt int) (status int, body []byte)) *youtrack.Client {
+	t.Helper()
+
+	attempt := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != workItemTypesTestPath {
+			http.NotFound(w, r)
+			return
+		}
+
+		attempt++
+		status, body := handler(attempt)
+		w.WriteHeader(status)
+		if body != nil {
+			if _, err := w.Write(body); err != nil {
+				t.Fatalf("failed to write work item types response: %v", err)
+			}
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	client, err := youtrack.NewClient(server.URL, "token")
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	return client
+}
+
+func TestWaitForWorkItemTypeChangesToSettleNoOpWithoutRelevantChanges(t *testing.T) {
+	t.Parallel()
+
+	r := &globalTimeTrackingSettingsResource{}
+	var diagnostics diag.Diagnostics
+
+	preChangeTypes := []youtrack.WorkItemType{{ID: testWorkItemTypeID, Name: testWorkItemType, AutoAttached: true}}
+	got, settled := r.waitForWorkItemTypeChangesToSettle(context.Background(), preChangeTypes, []workItemTypeChange{}, &diagnostics)
+	if !settled {
+		t.Fatalf("expected nothing-to-settle to report a usable list")
+	}
+	if len(got) != 1 || got[0].ID != testWorkItemTypeID {
+		t.Fatalf("expected the pre-change list to be returned unchanged, got %v", got)
+	}
+	if diagnostics.HasError() || len(diagnostics.Warnings()) != 0 {
+		t.Fatalf("unexpected diagnostics: %v", diagnostics)
+	}
+}
+
+func TestWaitForWorkItemTypeChangesToSettleRetriesPastTransientListError(t *testing.T) {
+	t.Parallel()
+
+	client := startWorkItemTypesServerRaw(t, func(attempt int) (int, []byte) {
+		if attempt == 1 {
+			// The classified transient error listWorkItemTypesWithRetry also special-cases.
+			return http.StatusInternalServerError, []byte(`{"error_description":"WorkItemType[` + testWorkItemTypeID + `] was removed."}`)
+		}
+		return http.StatusOK, []byte("[]")
+	})
+
+	r := &globalTimeTrackingSettingsResource{client: client}
+	var diagnostics diag.Diagnostics
+
+	changes := []workItemTypeChange{{deleteID: testWorkItemTypeID}}
+	_, settled := r.waitForWorkItemTypeChangesToSettle(context.Background(), nil, changes, &diagnostics)
+	if !settled {
+		t.Fatalf("expected retry to succeed with a settled list, got diagnostics: %v", diagnostics)
+	}
+	if diagnostics.HasError() || len(diagnostics.Warnings()) != 0 {
+		t.Fatalf("unexpected diagnostics: %v", diagnostics)
+	}
+}
+
+// TestWaitForWorkItemTypeChangesToSettleRetriesPastTransientServerError covers the ordinary
+// infrastructure flakiness case: a proxy in front of YouTrack returns a single 502 while we poll
+// for confirmation. The mutation already succeeded, so this must be ridden out rather than
+// abandoned — otherwise state is left showing pre-mutation work item types.
+func TestWaitForWorkItemTypeChangesToSettleRetriesPastTransientServerError(t *testing.T) {
+	t.Parallel()
+
+	client := startWorkItemTypesServerRaw(t, func(attempt int) (int, []byte) {
+		if attempt == 1 {
+			return http.StatusBadGateway, []byte("bad gateway")
+		}
+		return http.StatusOK, []byte("[]")
+	})
+
+	r := &globalTimeTrackingSettingsResource{client: client}
+	var diagnostics diag.Diagnostics
+
+	changes := []workItemTypeChange{{deleteID: testWorkItemTypeID}}
+	_, settled := r.waitForWorkItemTypeChangesToSettle(context.Background(), nil, changes, &diagnostics)
+	if !settled {
+		t.Fatalf("expected a 502 to be retried, got diagnostics: %v", diagnostics)
+	}
+	if diagnostics.HasError() || len(diagnostics.Warnings()) != 0 {
+		t.Fatalf("unexpected diagnostics: %v", diagnostics)
+	}
+}
+
+func TestWaitForWorkItemTypeChangesToSettleFailsFastOnPermanentError(t *testing.T) {
+	t.Parallel()
+
+	var calls int
+	client := startWorkItemTypesServer(t, func(_ int) (int, []youtrack.WorkItemType) {
+		calls++
+		// A definitive client error — retrying can never make this succeed.
+		return http.StatusForbidden, nil
+	})
+
+	r := &globalTimeTrackingSettingsResource{client: client}
+	var diagnostics diag.Diagnostics
+
+	changes := []workItemTypeChange{{deleteID: testWorkItemTypeID}}
+	_, settled := r.waitForWorkItemTypeChangesToSettle(context.Background(), nil, changes, &diagnostics)
+	if settled {
+		t.Fatalf("expected a permanent error to report an unusable list")
+	}
+	if calls != 1 {
+		t.Fatalf("expected exactly one attempt for a permanent error, got %d", calls)
+	}
+	if diagnostics.HasError() {
+		t.Fatalf("expected a warning, not an error, since the mutation already succeeded: %v", diagnostics)
+	}
+	if len(diagnostics.Warnings()) != 1 {
+		t.Fatalf("expected exactly one warning, got %v", diagnostics.Warnings())
+	}
+}
+
+func TestWaitForWorkItemTypeChangesToSettleTimesOut(t *testing.T) {
+	t.Parallel()
+
+	client := startWorkItemTypesServer(t, func(_ int) (int, []youtrack.WorkItemType) {
+		// The deleted type never disappears from the list.
+		return http.StatusOK, []youtrack.WorkItemType{{ID: testWorkItemTypeID, Name: testWorkItemType, AutoAttached: true}}
+	})
+
+	r := &globalTimeTrackingSettingsResource{client: client}
+	var diagnostics diag.Diagnostics
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+
+	changes := []workItemTypeChange{{deleteID: testWorkItemTypeID}}
+	_, settled := r.waitForWorkItemTypeChangesToSettle(ctx, nil, changes, &diagnostics)
+	if settled {
+		t.Fatalf("expected an unusable list once the context deadline is exceeded")
+	}
+	if diagnostics.HasError() {
+		t.Fatalf("expected a warning, not an error, since the mutation already succeeded: %v", diagnostics)
+	}
+	if len(diagnostics.Warnings()) != 1 {
+		t.Fatalf("expected diagnostics to report exactly one warning about the timeout, got %v", diagnostics.Warnings())
 	}
 }

@@ -70,10 +70,11 @@ func bundleCommonValueAttributes(valueKind string) map[string]schema.Attribute {
 			Description: fmt.Sprintf(bundleValueDescriptionDescriptionFmt, valueKind),
 		},
 		"archived": schema.BoolAttribute{
-			Optional:    true,
-			Computed:    true,
-			Default:     booldefault.StaticBool(false),
-			Description: fmt.Sprintf(bundleValueArchivedDescriptionFmt, valueKind),
+			Optional:      true,
+			Computed:      true,
+			Default:       booldefault.StaticBool(false),
+			Description:   fmt.Sprintf(bundleValueArchivedDescriptionFmt, valueKind),
+			PlanModifiers: preserveBoolPlanModifiers,
 		},
 		"ordinal": schema.Int64Attribute{
 			Computed:    true,

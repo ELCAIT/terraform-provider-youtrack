@@ -12,8 +12,21 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64default"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+)
+
+// preserveBoolPlanModifiers is shared by every Optional+Computed+Default bool attribute in this
+// package that can change out-of-band (e.g. directly in the YouTrack UI), so an unrelated apply
+// doesn't silently revert it back to the schema default. See helpers.PreserveStateWhenUnconfiguredBool.
+var preserveBoolPlanModifiers = []planmodifier.Bool{helpers.PreserveStateWhenUnconfiguredBool}
+
+// preserveStringPlanModifiers and preserveInt64PlanModifiers are the string/int64 counterparts,
+// for the same reason: these attributes are routinely set directly in the YouTrack UI.
+var (
+	preserveStringPlanModifiers = []planmodifier.String{helpers.PreserveStateWhenUnconfiguredString}
+	preserveInt64PlanModifiers  = []planmodifier.Int64{helpers.PreserveStateWhenUnconfiguredInt64}
 )
 
 const (
@@ -66,34 +79,39 @@ func (r *systemSettingsResource) Schema(_ context.Context, _ resource.SchemaRequ
 				Computed:    true,
 			},
 			"administrator_email": schema.StringAttribute{
-				Description: "Email address of the YouTrack administrator.",
-				Optional:    true,
-				Computed:    true,
-				Default:     stringdefault.StaticString(""),
+				Description:   "Email address of the YouTrack administrator.",
+				Optional:      true,
+				Computed:      true,
+				Default:       stringdefault.StaticString(""),
+				PlanModifiers: preserveStringPlanModifiers,
 			},
 			"max_export_items": schema.Int64Attribute{
-				Description: "Maximum number of items that can be exported at once. Default is 1000.",
-				Optional:    true,
-				Computed:    true,
-				Default:     int64default.StaticInt64(defaultMaxExportItems),
+				Description:   "Maximum number of items that can be exported at once. Default is 1000.",
+				Optional:      true,
+				Computed:      true,
+				Default:       int64default.StaticInt64(defaultMaxExportItems),
+				PlanModifiers: preserveInt64PlanModifiers,
 			},
 			"max_upload_file_size": schema.Int64Attribute{
-				Description: "Maximum file size (in bytes) that can be uploaded to YouTrack. Default is 10485760 (10MB).",
-				Optional:    true,
-				Computed:    true,
-				Default:     int64default.StaticInt64(defaultMaxUploadFileSize),
+				Description:   "Maximum file size (in bytes) that can be uploaded to YouTrack. Default is 10485760 (10MB).",
+				Optional:      true,
+				Computed:      true,
+				Default:       int64default.StaticInt64(defaultMaxUploadFileSize),
+				PlanModifiers: preserveInt64PlanModifiers,
 			},
 			"allow_statistics_collection": schema.BoolAttribute{
-				Description: "Indicates whether YouTrack is allowed to collect usage statistics. Default is false.",
-				Optional:    true,
-				Computed:    true,
-				Default:     booldefault.StaticBool(false),
+				Description:   "Indicates whether YouTrack is allowed to collect usage statistics. Default is false.",
+				Optional:      true,
+				Computed:      true,
+				Default:       booldefault.StaticBool(false),
+				PlanModifiers: preserveBoolPlanModifiers,
 			},
 			"is_application_read_only": schema.BoolAttribute{
-				Description: "Indicates whether the YouTrack application is in read-only mode. Default is false.",
-				Optional:    true,
-				Computed:    true,
-				Default:     booldefault.StaticBool(false),
+				Description:   "Indicates whether the YouTrack application is in read-only mode. Default is false.",
+				Optional:      true,
+				Computed:      true,
+				Default:       booldefault.StaticBool(false),
+				PlanModifiers: preserveBoolPlanModifiers,
 			},
 			"base_url": schema.StringAttribute{
 				Description: "Base URL of the YouTrack instance.",

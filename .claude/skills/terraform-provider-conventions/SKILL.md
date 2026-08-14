@@ -212,6 +212,17 @@ attribute (login/name/...) and the rest `Computed`.
   `Optional: true, Computed: true` + `stringplanmodifier.UseStateForUnknown()`
   (and `booldefault.StaticBool(false)` where a concrete default reads better
   than "whatever the API happens to return").
+  **Caution:** `boolplanmodifier.UseStateForUnknown()` does NOT protect a
+  `Default`-bearing bool attribute from clobbering out-of-band changes —
+  `TransformDefaults` runs before plan modifiers and overwrites the planned
+  value from the raw config alone (null config → default), so by the time
+  `UseStateForUnknown` runs the value is already known and its `IsUnknown()`
+  guard never fires. If an `Optional+Computed+Default` bool represents
+  something that can change outside Terraform (e.g. a Hub admin toggling a
+  security setting directly), add a custom `planmodifier.Bool` that checks
+  `req.State.Raw.IsNull()` (skip on create, let `Default` apply) and
+  `req.ConfigValue.IsNull()` (preserve `req.StateValue` on update) — see
+  `preserveStateWhenUnconfiguredBoolModifier` in `service.go`.
 - Every `schema.Schema` and every attribute needs a `Description` — this also
   feeds `tfplugindocs` generation (see below), so a missing description is a
   missing line in the published docs, not just a lint nit.
