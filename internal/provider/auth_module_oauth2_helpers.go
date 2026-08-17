@@ -4,6 +4,8 @@
 package provider
 
 import (
+	"context"
+
 	helpers "github.com/elcait/terraform-provider-youtrack/internal/helpers"
 
 	youtrack "github.com/elcait/youtrack-api-client/client"
@@ -22,6 +24,43 @@ const (
 	// Error message details
 	errOAuth2ModuleIDRequired = "OAuth2 auth module ID is required to read the module"
 )
+
+// ops describes the OAuth2 auth module to the shared secret-backed resource CRUD.
+func (r *oauth2AuthModuleResource) ops() secretBackedResourceOps[oauth2AuthModuleResourceModel, youtrack.OAuth2AuthModule] {
+	return secretBackedResourceOps[oauth2AuthModuleResourceModel, youtrack.OAuth2AuthModule]{
+		label:         "OAuth2 auth module",
+		updateLabel:   "oauth2 auth module",
+		errCreating:   errCreatingOAuth2Module,
+		errReading:    errReadingOAuth2Module,
+		errUpdating:   errUpdatingOAuth2Module,
+		errDeleting:   errDeletingOAuth2Module,
+		errImporting:  errImportingOAuth2Module,
+		errMissingID:  errMissingOAuth2ModuleID,
+		errIDRequired: errOAuth2ModuleIDRequired,
+
+		toAPI: func(_ context.Context, model *oauth2AuthModuleResourceModel) youtrack.OAuth2AuthModule {
+			return model.toAPIModel()
+		},
+		fromAPI: func(model *oauth2AuthModuleResourceModel, api *youtrack.OAuth2AuthModule) {
+			model.fromAPIModel(api)
+		},
+		modelID:     func(model *oauth2AuthModuleResourceModel) types.String { return model.ID },
+		modelSecret: func(model *oauth2AuthModuleResourceModel) types.String { return model.ClientSecret },
+		setSecret: func(model *oauth2AuthModuleResourceModel, secret types.String) {
+			model.ClientSecret = secret
+		},
+		apiID:     func(api *youtrack.OAuth2AuthModule) string { return api.ID },
+		apiSecret: func(api *youtrack.OAuth2AuthModule) string { return api.ClientSecret },
+
+		enforcedAttribute: attrAllowedCreateNewUsers,
+		enforcedValue:     func(api *youtrack.OAuth2AuthModule) *bool { return &api.AllowedCreateNewUsers },
+
+		create: r.client.CreateOAuth2AuthModule,
+		read:   r.client.GetOAuth2AuthModuleByID,
+		update: r.client.UpdateOAuth2AuthModule,
+		delete: r.client.DeleteOAuth2AuthModule,
+	}
+}
 
 // oauth2AuthModuleResourceModel maps the Terraform resource schema data.
 type oauth2AuthModuleResourceModel struct {

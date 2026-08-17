@@ -6,6 +6,11 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 )
 
+// PreserveStateWhenUnconfiguredDescription is the description shared by every
+// preserve-state-when-unconfigured plan modifier below.
+const PreserveStateWhenUnconfiguredDescription = "Once set, preserves the prior state value when this attribute is left unset in " +
+	"configuration, instead of resetting it to the default on every apply."
+
 // PreserveStateWhenUnconfiguredBool is a planmodifier.Bool for an Optional+Computed+Default bool
 // attribute. It keeps the prior state value when the attribute is left unset in configuration,
 // instead of resending the schema Default on every apply. Without this, an unrelated apply
@@ -17,8 +22,7 @@ var PreserveStateWhenUnconfiguredBool planmodifier.Bool = preserveStateWhenUncon
 type preserveStateWhenUnconfiguredBoolModifier struct{}
 
 func (m preserveStateWhenUnconfiguredBoolModifier) Description(_ context.Context) string {
-	return "Once set, preserves the prior state value when this attribute is left unset in " +
-		"configuration, instead of resetting it to the default on every apply."
+	return PreserveStateWhenUnconfiguredDescription
 }
 
 func (m preserveStateWhenUnconfiguredBoolModifier) MarkdownDescription(ctx context.Context) string {
@@ -43,8 +47,7 @@ var PreserveStateWhenUnconfiguredString planmodifier.String = preserveStateWhenU
 type preserveStateWhenUnconfiguredStringModifier struct{}
 
 func (m preserveStateWhenUnconfiguredStringModifier) Description(_ context.Context) string {
-	return "Once set, preserves the prior state value when this attribute is left unset in " +
-		"configuration, instead of resetting it to the default on every apply."
+	return PreserveStateWhenUnconfiguredDescription
 }
 
 func (m preserveStateWhenUnconfiguredStringModifier) MarkdownDescription(ctx context.Context) string {
@@ -69,8 +72,7 @@ var PreserveStateWhenUnconfiguredInt64 planmodifier.Int64 = preserveStateWhenUnc
 type preserveStateWhenUnconfiguredInt64Modifier struct{}
 
 func (m preserveStateWhenUnconfiguredInt64Modifier) Description(_ context.Context) string {
-	return "Once set, preserves the prior state value when this attribute is left unset in " +
-		"configuration, instead of resetting it to the default on every apply."
+	return PreserveStateWhenUnconfiguredDescription
 }
 
 func (m preserveStateWhenUnconfiguredInt64Modifier) MarkdownDescription(ctx context.Context) string {
