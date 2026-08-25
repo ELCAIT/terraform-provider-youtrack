@@ -7,6 +7,8 @@ updates:
     open-pull-requests-limit: 10
     commit-message:
       prefix: chore(deps)
+    cooldown:
+      default-days: 0
 
   - package-ecosystem: github-actions
     directory: "/"
@@ -20,3 +22,5 @@ updates:
     directory: "_docker-compose"
     schedule:
       interval: "daily"
+    cooldown:
+      default-days: 0
