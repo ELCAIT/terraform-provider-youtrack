@@ -38,4 +38,4 @@ export YOUTRACK_AZURE_CLIENT_SECRET=...
 export YOUTRACK_AZURE_TENANT="11111111-1111-1111-1111-111111111111"
 
 # install golangci-lint in go Path
-curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.12.2
+curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.13.1
