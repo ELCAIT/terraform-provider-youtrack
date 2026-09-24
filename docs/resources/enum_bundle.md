@@ -3,12 +3,12 @@
 page_title: "youtrack_enum_bundle Resource - youtrack"
 subcategory: ""
 description: |-
-  YouTrack enum bundle resource. This resource manages sets of enum values.
+  YouTrack enum bundle resource. This resource manages sets of enum values. Values are matched to existing ones by name, so renaming a value replaces it with a new one.
 ---
 
 # youtrack_enum_bundle (Resource)
 
-YouTrack enum bundle resource. This resource manages sets of enum values.
+YouTrack enum bundle resource. This resource manages sets of enum values. Values are matched to existing ones by name, so renaming a value replaces it with a new one.
 
 ## Example Usage
 

@@ -35,7 +35,10 @@ func (m preserveStateWhenUnconfiguredBoolModifier) PlanModifyBool(_ context.Cont
 		return
 	}
 
-	if req.ConfigValue.IsNull() {
+	// A null state value has nothing to preserve: the attribute belongs to a
+	// nested object that is new in this plan, such as a value added to a
+	// bundle's list, so the schema Default must stand.
+	if req.ConfigValue.IsNull() && !req.StateValue.IsNull() {
 		resp.PlanValue = req.StateValue
 	}
 }
@@ -60,7 +63,10 @@ func (m preserveStateWhenUnconfiguredStringModifier) PlanModifyString(_ context.
 		return
 	}
 
-	if req.ConfigValue.IsNull() {
+	// A null state value has nothing to preserve: the attribute belongs to a
+	// nested object that is new in this plan, such as a value added to a
+	// bundle's list, so the schema Default must stand.
+	if req.ConfigValue.IsNull() && !req.StateValue.IsNull() {
 		resp.PlanValue = req.StateValue
 	}
 }
@@ -85,7 +91,10 @@ func (m preserveStateWhenUnconfiguredInt64Modifier) PlanModifyInt64(_ context.Co
 		return
 	}
 
-	if req.ConfigValue.IsNull() {
+	// A null state value has nothing to preserve: the attribute belongs to a
+	// nested object that is new in this plan, such as a value added to a
+	// bundle's list, so the schema Default must stand.
+	if req.ConfigValue.IsNull() && !req.StateValue.IsNull() {
 		resp.PlanValue = req.StateValue
 	}
 }

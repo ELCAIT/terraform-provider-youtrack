@@ -1,3 +1,16 @@
+## 1.2.0
+FEATURES:
+- Add `youtrack_owned_bundle` resource for managing owned field bundles, the value sets behind `ownedField[1]` custom fields. Each value can have an owner, set with `owner_login`. Values are matched to existing ones by name, so renaming a value replaces it with a new one.
+
+IMPROVEMENTS:
+- `youtrack_custom_field` now accepts `field_defaults.bundle_name` and `field_defaults.default_value_names` for `ownedField[1]` fields.
+- `youtrack_project_custom_field` now accepts `bundle_name` and `default_value_names` for `OwnedProjectCustomField`.
+
+BUG FIXES:
+- Fix `youtrack_enum_bundle` and `youtrack_state_bundle` deleting and recreating every value, under a new ID, on any update — even one that only renamed the bundle. YouTrack clears a recreated value on every issue that used it, so each apply emptied that field across the affected issues. Values are now matched to existing ones by name and edited in place, so they keep their IDs; renaming a value still replaces it.
+- Fix adding a value to an existing enum or state bundle without setting `archived` (or `is_resolved`) failing with "Provider produced inconsistent result after apply". The same fix applies to every attribute that keeps its prior value when left unset.
+- Fix destroying a bundle together with the custom field or project field that uses it intermittently failing with "This bundle has usages": YouTrack acknowledges the field's removal before it drops the reference.
+
 ## 1.1.1
 FEATURES:
 

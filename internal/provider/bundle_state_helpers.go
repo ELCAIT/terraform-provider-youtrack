@@ -1,6 +1,8 @@
 package provider
 
 import (
+	"context"
+
 	helpers "github.com/elcait/terraform-provider-youtrack/internal/helpers"
 	youtrack "github.com/elcait/youtrack-api-client/client"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -17,41 +19,89 @@ func (m *stateBundleResourceModel) toAPIModel() youtrack.StateBundle {
 	}
 }
 
-func (m *stateBundleResourceModel) toAPIModelPreservingExisting(current *youtrack.StateBundle) youtrack.StateBundle {
-	values := mergeBundleValuesPreservingExisting(m.Values, current.Values, bundleValueMergeOps[stateBundleValueModel, youtrack.StateBundleElement]{
-		toAPI: func(value stateBundleValueModel) youtrack.StateBundleElement {
-			return value.toAPIModel()
-		},
-		modelID: func(value stateBundleValueModel) string {
-			return helpers.StringFromOptional(value.ID)
-		},
-		apiID: func(item youtrack.StateBundleElement) string {
-			return item.ID
-		},
-		setAPIID: func(item *youtrack.StateBundleElement, id string) {
-			item.ID = id
-		},
-		apiName: func(item youtrack.StateBundleElement) string {
-			return item.Name
-		},
-	})
-
-	return youtrack.StateBundle{
-		Name:   m.Name.ValueString(),
-		Values: values,
-	}
-}
-
 func (m *stateBundleValueModel) toAPIModel() youtrack.StateBundleElement {
 	item := youtrack.StateBundleElement{
 		Name:       m.Name.ValueString(),
 		IsResolved: helpers.BoolFromOptional(m.IsResolved),
 		Archived:   helpers.BoolFromOptional(m.Archived),
 	}
-	item.ID = helpers.StringFromOptional(m.ID)
 	item.Description = helpers.StringFromOptional(m.Description)
 	item.LocalizedName = helpers.StringFromOptional(m.LocalizedName)
 	return item
+}
+
+// toValueUpdate builds the full replacement for an existing value. Optional
+// attributes the plan leaves unknown (unset in configuration) keep what
+// YouTrack has.
+func (m *stateBundleValueModel) toValueUpdate(current youtrack.StateBundleElement, ordinal int) youtrack.StateBundleValueUpdate {
+	return youtrack.StateBundleValueUpdate{
+		Name:          m.Name.ValueString(),
+		LocalizedName: optionalStringPointer(m.LocalizedName, current.LocalizedName),
+		Description:   optionalStringPointer(m.Description, current.Description),
+		IsResolved:    helpers.BoolFromOptional(m.IsResolved),
+		Archived:      helpers.BoolFromOptional(m.Archived),
+		Ordinal:       &ordinal,
+	}
+}
+
+func stateValueAsUpdate(current youtrack.StateBundleElement) youtrack.StateBundleValueUpdate {
+	ordinal := current.Ordinal
+	return youtrack.StateBundleValueUpdate{
+		Name:          current.Name,
+		LocalizedName: stringPointerOrNil(current.LocalizedName),
+		Description:   stringPointerOrNil(current.Description),
+		IsResolved:    current.IsResolved,
+		Archived:      current.Archived,
+		Ordinal:       &ordinal,
+	}
+}
+
+func (r *stateBundleResource) valueReconciler(bundleID string) bundleValueReconciler[stateBundleValueModel, youtrack.StateBundleElement, youtrack.StateBundleValueUpdate] {
+	return bundleValueReconciler[stateBundleValueModel, youtrack.StateBundleElement, youtrack.StateBundleValueUpdate]{
+		plannedName: func(value stateBundleValueModel) string { return value.Name.ValueString() },
+		apiID:       func(value youtrack.StateBundleElement) string { return value.ID },
+		apiName:     func(value youtrack.StateBundleElement) string { return value.Name },
+		toUpdate: func(value stateBundleValueModel, current youtrack.StateBundleElement, ordinal int) youtrack.StateBundleValueUpdate {
+			return value.toValueUpdate(current, ordinal)
+		},
+		currentAsUpdate: stateValueAsUpdate,
+		add: func(ctx context.Context, value stateBundleValueModel, ordinal int) error {
+			element := value.toAPIModel()
+			element.Ordinal = ordinal
+			_, err := r.client.AddStateBundleValue(ctx, bundleID, element)
+			return err
+		},
+		replace: func(ctx context.Context, valueID string, update youtrack.StateBundleValueUpdate) error {
+			_, err := r.client.ReplaceStateBundleValue(ctx, bundleID, valueID, update)
+			return err
+		},
+		remove: func(ctx context.Context, valueID string) error {
+			return r.client.DeleteStateBundleValue(ctx, bundleID, valueID)
+		},
+	}
+}
+
+// reconcile brings an existing state bundle in line with the plan, editing
+// values one by one so that each keeps its ID (see bundleValueReconciler).
+func (r *stateBundleResource) reconcile(ctx context.Context, plan stateBundleResourceModel) (*youtrack.StateBundle, error) {
+	bundleID := plan.ID.ValueString()
+
+	current, err := r.client.GetStateBundleByID(ctx, bundleID)
+	if err != nil {
+		return nil, err
+	}
+
+	if current.Name != plan.Name.ValueString() {
+		if _, err := r.client.UpdateStateBundle(ctx, bundleID, youtrack.StateBundle{Name: plan.Name.ValueString()}); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := r.valueReconciler(bundleID).reconcile(ctx, plan.Values, current.Values); err != nil {
+		return nil, err
+	}
+
+	return r.client.GetStateBundleByID(ctx, bundleID)
 }
 
 func unexpectedStateValueNames(plan stateBundleResourceModel, updated *youtrack.StateBundle) []string {
@@ -68,7 +118,8 @@ func (m *stateBundleResourceModel) fromAPIModel(apiModel *youtrack.StateBundle) 
 	m.Name = types.StringValue(apiModel.Name)
 	m.IsUpdateable = types.BoolValue(apiModel.IsUpdateable)
 
-	values := mapBundleValues(apiModel.Values, func(value youtrack.StateBundleElement) stateBundleValueModel {
+	values := sortedByOrdinal(apiModel.Values, func(value youtrack.StateBundleElement) int { return value.Ordinal })
+	m.Values = mapBundleValues(values, func(value youtrack.StateBundleElement) stateBundleValueModel {
 		return stateBundleValueModel{
 			ID:            types.StringValue(value.ID),
 			Name:          types.StringValue(value.Name),
@@ -79,5 +130,4 @@ func (m *stateBundleResourceModel) fromAPIModel(apiModel *youtrack.StateBundle) 
 			Ordinal:       types.Int64Value(int64(value.Ordinal)),
 		}
 	})
-	m.Values = values
 }

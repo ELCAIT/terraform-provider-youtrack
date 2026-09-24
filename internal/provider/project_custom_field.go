@@ -37,13 +37,17 @@ const (
 
 	errProjectCustomFieldIDRequired      = "Project custom field ID is required"
 	errProjectCustomFieldImportIDInvalid = "Invalid import ID format. Expected: {project_id}/{field_id}"
-	errBundleTypeNotSupported            = "bundle lookup not supported for field type %q; supported: EnumProjectCustomField, StateProjectCustomField"
-	errDefaultValuesTypeNotSupported     = "default_value_names is only supported for field type %q; supported: EnumProjectCustomField, StateProjectCustomField"
+	errBundleTypeNotSupported            = "bundle lookup not supported for field type %q; supported: EnumProjectCustomField, StateProjectCustomField, OwnedProjectCustomField"
+	errDefaultValuesTypeNotSupported     = "default_value_names is not supported for field type %q; supported: EnumProjectCustomField, StateProjectCustomField, OwnedProjectCustomField"
 	errCannotDeriveProjectType           = "could not derive project custom field type from global custom field type %q; set field_type explicitly"
 	errCannotDeriveProjectTypeFromID     = "could not derive project custom field type from global custom field fieldType.id %q; set field_type explicitly"
 
 	projectCustomFieldImportSeparator = "/"
 	projectCustomFieldImportParts     = 2
+
+	projectFieldTypeEnum  = "EnumProjectCustomField"
+	projectFieldTypeState = "StateProjectCustomField"
+	projectFieldTypeOwned = "OwnedProjectCustomField"
 )
 
 // NewProjectCustomFieldResource is a helper function to simplify the provider implementation.
@@ -130,7 +134,7 @@ func (r *projectCustomFieldResource) Schema(_ context.Context, _ resource.Schema
 			"bundle_name": schema.StringAttribute{
 				Optional:    true,
 				Computed:    true,
-				Description: "The name of the bundle to use for this project custom field. Overrides the default bundle from the global custom field. Supported for EnumProjectCustomField and StateProjectCustomField.",
+				Description: "The name of the bundle to use for this project custom field. Overrides the default bundle from the global custom field. Supported for EnumProjectCustomField, StateProjectCustomField and OwnedProjectCustomField.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
 				},
@@ -139,7 +143,7 @@ func (r *projectCustomFieldResource) Schema(_ context.Context, _ resource.Schema
 				Optional:    true,
 				Computed:    true,
 				ElementType: types.StringType,
-				Description: "Default values set for new issues. Values are resolved by name from the effective bundle. Supported for EnumProjectCustomField and StateProjectCustomField.",
+				Description: "Default values set for new issues. Values are resolved by name from the effective bundle. Supported for EnumProjectCustomField, StateProjectCustomField and OwnedProjectCustomField.",
 			},
 		},
 	}
@@ -353,9 +357,9 @@ func deriveProjectCustomFieldTypeFromFieldTypeID(fieldTypeID string) (string, er
 
 	switch t {
 	case "enum":
-		return "EnumProjectCustomField", nil
+		return projectFieldTypeEnum, nil
 	case "state":
-		return "StateProjectCustomField", nil
+		return projectFieldTypeState, nil
 	case "period":
 		return "PeriodProjectCustomField", nil
 	case "build":
@@ -363,7 +367,7 @@ func deriveProjectCustomFieldTypeFromFieldTypeID(fieldTypeID string) (string, er
 	case "version":
 		return "VersionProjectCustomField", nil
 	case "ownedfield":
-		return "OwnedProjectCustomField", nil
+		return projectFieldTypeOwned, nil
 	case "user":
 		return "UserProjectCustomField", nil
 	case "group":
@@ -380,7 +384,7 @@ func deriveProjectCustomFieldTypeFromFieldTypeID(fieldTypeID string) (string, er
 }
 
 // lookupBundleByName resolves a bundle name to a BundleRef for the given field type.
-// Returns nil if bundle_name is not set. Only EnumProjectCustomField and StateProjectCustomField are supported.
+// Returns nil if bundle_name is not set. Only enum, state and owned project custom fields are supported.
 func (r *projectCustomFieldResource) lookupBundleByName(ctx context.Context, m projectCustomFieldResourceModel) (*youtrack.BundleRef, error) {
 	if m.BundleName.IsNull() || m.BundleName.IsUnknown() || m.BundleName.ValueString() == "" {
 		return nil, nil
@@ -390,18 +394,24 @@ func (r *projectCustomFieldResource) lookupBundleByName(ctx context.Context, m p
 	fieldType := m.FieldType.ValueString()
 
 	switch fieldType {
-	case "EnumProjectCustomField":
+	case projectFieldTypeEnum:
 		b, err := r.client.GetEnumBundleByName(ctx, bundleName)
 		if err != nil {
 			return nil, fmt.Errorf("could not find enum bundle with name %q: %w", bundleName, err)
 		}
 		return &youtrack.BundleRef{ID: b.ID, Type: bundleTypeEnum}, nil
-	case "StateProjectCustomField":
+	case projectFieldTypeState:
 		b, err := r.client.GetStateBundleByName(ctx, bundleName)
 		if err != nil {
 			return nil, fmt.Errorf("could not find state bundle with name %q: %w", bundleName, err)
 		}
 		return &youtrack.BundleRef{ID: b.ID, Type: bundleTypeState}, nil
+	case projectFieldTypeOwned:
+		b, err := r.client.GetOwnedBundleByName(ctx, bundleName)
+		if err != nil {
+			return nil, bundleLookupError(bundleKindOwned, bundleName, err)
+		}
+		return &youtrack.BundleRef{ID: b.ID, Type: bundleTypeOwned}, nil
 	default:
 		return nil, fmt.Errorf(errBundleTypeNotSupported, fieldType)
 	}
@@ -433,10 +443,12 @@ func (r *projectCustomFieldResource) lookupDefaultValues(
 	}
 
 	switch m.FieldType.ValueString() {
-	case "EnumProjectCustomField":
-		return r.resolveEnumDefaultValues(ctx, bundleID, trimmed)
-	case "StateProjectCustomField":
-		return r.resolveStateDefaultValues(ctx, bundleID, trimmed)
+	case projectFieldTypeEnum:
+		return resolveEnumCustomFieldDefaultValues(ctx, r.client, bundleID, trimmed)
+	case projectFieldTypeState:
+		return resolveStateCustomFieldDefaultValues(ctx, r.client, bundleID, trimmed)
+	case projectFieldTypeOwned:
+		return resolveOwnedCustomFieldDefaultValues(ctx, r.client, bundleID, trimmed)
 	default:
 		return nil, fmt.Errorf(errDefaultValuesTypeNotSupported, m.FieldType.ValueString())
 	}
@@ -471,50 +483,6 @@ func resolveBundleID(bundle *youtrack.BundleRef, field *youtrack.CustomField) (s
 		}
 	}
 	return "", fmt.Errorf("cannot resolve default_value_names because no bundle is configured; set bundle_name or configure a default bundle on the global custom field")
-}
-
-func (r *projectCustomFieldResource) resolveEnumDefaultValues(ctx context.Context, bundleID string, names []string) ([]youtrack.ProjectCustomFieldValueRef, error) {
-	enumBundle, err := r.client.GetEnumBundleByID(ctx, bundleID)
-	if err != nil {
-		return nil, fmt.Errorf("could not load enum bundle %q for default_value_names: %w", bundleID, err)
-	}
-
-	byName := make(map[string]youtrack.EnumBundleElement, len(enumBundle.Values))
-	for _, v := range enumBundle.Values {
-		byName[v.Name] = v
-	}
-
-	refs := make([]youtrack.ProjectCustomFieldValueRef, 0, len(names))
-	for _, name := range names {
-		v, exists := byName[name]
-		if !exists {
-			return nil, fmt.Errorf("default value %q not found in enum bundle %q", name, enumBundle.Name)
-		}
-		refs = append(refs, youtrack.ProjectCustomFieldValueRef{ID: v.ID, Name: v.Name, Type: v.Type})
-	}
-	return refs, nil
-}
-
-func (r *projectCustomFieldResource) resolveStateDefaultValues(ctx context.Context, bundleID string, names []string) ([]youtrack.ProjectCustomFieldValueRef, error) {
-	stateBundle, err := r.client.GetStateBundleByID(ctx, bundleID)
-	if err != nil {
-		return nil, fmt.Errorf("could not load state bundle %q for default_value_names: %w", bundleID, err)
-	}
-
-	byName := make(map[string]youtrack.StateBundleElement, len(stateBundle.Values))
-	for _, v := range stateBundle.Values {
-		byName[v.Name] = v
-	}
-
-	refs := make([]youtrack.ProjectCustomFieldValueRef, 0, len(names))
-	for _, name := range names {
-		v, exists := byName[name]
-		if !exists {
-			return nil, fmt.Errorf("default value %q not found in state bundle %q", name, stateBundle.Name)
-		}
-		refs = append(refs, youtrack.ProjectCustomFieldValueRef{ID: v.ID, Name: v.Name, Type: v.Type})
-	}
-	return refs, nil
 }
 
 func (r *projectCustomFieldResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

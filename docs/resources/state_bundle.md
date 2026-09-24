@@ -3,12 +3,12 @@
 page_title: "youtrack_state_bundle Resource - youtrack"
 subcategory: ""
 description: |-
-  YouTrack state bundle resource. This resource manages sets of state values.
+  YouTrack state bundle resource. This resource manages sets of state values. Values are matched to existing ones by name, so renaming a value replaces it with a new one.
 ---
 
 # youtrack_state_bundle (Resource)
 
-YouTrack state bundle resource. This resource manages sets of state values.
+YouTrack state bundle resource. This resource manages sets of state values. Values are matched to existing ones by name, so renaming a value replaces it with a new one.
 
 ## Example Usage
 
