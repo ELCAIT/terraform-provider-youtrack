@@ -71,3 +71,8 @@ resource "youtrack_project_time_tracking_settings" "example" {
   time_spent_field_name = youtrack_project_custom_field.spent_time.field_name
   estimate_field_name   = youtrack_project_custom_field.estimation.field_name
 }
+
+resource "youtrack_project_custom_field" "component" {
+  project_id = youtrack_project.test.id
+  field_name = "Component"
+}
