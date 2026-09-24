@@ -326,6 +326,8 @@ func resolveCustomFieldDefaultValuesByType(
 		return resolveEnumCustomFieldDefaultValues(ctx, client, bundleID, names)
 	case fieldTypePrefixState:
 		return resolveStateCustomFieldDefaultValues(ctx, client, bundleID, names)
+	case fieldTypePrefixOwnedField:
+		return resolveOwnedCustomFieldDefaultValues(ctx, client, bundleID, names)
 	default:
 		return nil, errors.New(errDefaultValuesTypeUnsupported)
 	}
@@ -345,6 +347,12 @@ func (r *customFieldResource) lookupCustomFieldBundleByName(ctx context.Context,
 			return nil, bundleLookupError(bundleKindState, bundleName, err)
 		}
 		return &youtrack.BundleRef{ID: bundle.ID, Type: bundleTypeState}, nil
+	case fieldTypePrefixOwnedField:
+		bundle, err := r.client.GetOwnedBundleByName(ctx, bundleName)
+		if err != nil {
+			return nil, bundleLookupError(bundleKindOwned, bundleName, err)
+		}
+		return &youtrack.BundleRef{ID: bundle.ID, Type: bundleTypeOwned}, nil
 	default:
 		return nil, errors.New(errBundleNameTypeUnsupported)
 	}
@@ -391,6 +399,27 @@ func resolveStateCustomFieldDefaultValues(
 			return bundle.Name, bundle.Values, nil
 		},
 		func(value youtrack.StateBundleElement) youtrack.ProjectCustomFieldValueRef {
+			return youtrack.ProjectCustomFieldValueRef{ID: value.ID, Name: value.Name, Type: value.Type}
+		},
+	)
+}
+
+func resolveOwnedCustomFieldDefaultValues(
+	ctx context.Context,
+	client *youtrack.Client,
+	bundleID string,
+	names []string,
+) ([]youtrack.ProjectCustomFieldValueRef, error) {
+	return resolveBundleDefaultValues(ctx, bundleKindOwned, bundleID, names,
+		func(ctx context.Context, id string) (string, []youtrack.OwnedBundleElement, error) {
+			bundle, err := client.GetOwnedBundleByID(ctx, id)
+			if err != nil {
+				return "", nil, err
+			}
+
+			return bundle.Name, bundle.Values, nil
+		},
+		func(value youtrack.OwnedBundleElement) youtrack.ProjectCustomFieldValueRef {
 			return youtrack.ProjectCustomFieldValueRef{ID: value.ID, Name: value.Name, Type: value.Type}
 		},
 	)

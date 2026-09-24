@@ -129,3 +129,78 @@ func TestAccProjectCustomField(t *testing.T) {
 		},
 	})
 }
+
+// testAccProjectCustomFieldPeriodConfig attaches a period field without a
+// field_type, so the provider must derive PeriodProjectCustomField itself:
+// YouTrack rejects the attachment without it. The field is then used as the
+// project's time tracking estimate, which is what period fields are for.
+func testAccProjectCustomFieldPeriodConfig(projectName, shortName, leaderLogin, fieldName string) string {
+	return providerBlock() + fmt.Sprintf(`
+resource "youtrack_custom_field" "global" {
+  name                       = %q
+  field_type_id              = "period"
+  is_auto_attached           = false
+  is_displayed_in_issue_list = true
+  field_defaults = {
+    can_be_empty     = true
+    empty_field_text = "No estimate"
+    is_public        = true
+  }
+}
+
+resource "youtrack_project" "parent" {
+  name         = %q
+  short_name   = %q
+  leader_login = %q
+}
+
+resource "youtrack_project_custom_field" "test" {
+  project_id       = youtrack_project.parent.id
+  field_name       = youtrack_custom_field.global.name
+  empty_field_text = "No estimate"
+}
+
+resource "youtrack_project_time_tracking_settings" "period" {
+  project_id          = youtrack_project.parent.id
+  enabled             = true
+  estimate_field_name = youtrack_project_custom_field.test.field_name
+}
+`, fieldName, projectName, shortName, leaderLogin)
+}
+
+func TestAccProjectCustomFieldPeriod(t *testing.T) {
+	skipUnlessAcc(t)
+
+	leaderLogin := testProjectLeaderLogin(t)
+	suffix := time.Now().UnixMilli()
+	fieldName := fmt.Sprintf("TF Acc Period Field %d", suffix)
+	projectName := fmt.Sprintf("TFAccPCFP%d", suffix)
+	shortName := fmt.Sprintf("PCFP%d", suffix%10000)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProviderFactories(),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccProjectCustomFieldPeriodConfig(projectName, shortName, leaderLogin, fieldName),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrSet(accProjectCustomFieldResource, "id"),
+					resource.TestCheckResourceAttr(accProjectCustomFieldResource, "field_type", "PeriodProjectCustomField"),
+					resource.TestCheckResourceAttr(accProjectCustomFieldResource, "empty_field_text", "No estimate"),
+					resource.TestCheckResourceAttr("youtrack_project_time_tracking_settings.period", "estimate_field_name", fieldName),
+				),
+			},
+			{
+				ResourceName:      accProjectCustomFieldResource,
+				ImportState:       true,
+				ImportStateVerify: true,
+				ImportStateIdFunc: func(s *terraform.State) (string, error) {
+					rs, ok := s.RootModule().Resources[accProjectCustomFieldResource]
+					if !ok {
+						return "", fmt.Errorf("resource %q not found", accProjectCustomFieldResource)
+					}
+					return rs.Primary.Attributes["project_id"] + "/" + rs.Primary.Attributes["id"], nil
+				},
+			},
+		},
+	})
+}

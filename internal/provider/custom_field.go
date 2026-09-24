@@ -34,8 +34,8 @@ const (
 	errBundleFallbackCreate         = "failed fallback create without bundle defaults"
 	errBundleFallbackUpdate         = "failed fallback update with bundle defaults"
 	errBundleFallbackDelete         = "failed cleanup delete after fallback update error"
-	errDefaultValuesTypeUnsupported = "default_value_names is only supported for enum[1] and state[1] custom fields"
-	errBundleNameTypeUnsupported    = "field_defaults.bundle_name is only supported for enum[1] and state[1] custom fields"
+	errDefaultValuesTypeUnsupported = "default_value_names is only supported for enum[1], state[1] and ownedField[1] custom fields"
+	errBundleNameTypeUnsupported    = "field_defaults.bundle_name is only supported for enum[1], state[1] and ownedField[1] custom fields"
 
 	fieldTypePrefixEnum       = "enum"
 	fieldTypePrefixState      = "state"
@@ -46,6 +46,7 @@ const (
 	// Bundle kinds as they read inside error messages.
 	bundleKindEnum  = "enum"
 	bundleKindState = "state"
+	bundleKindOwned = "owned"
 
 	bundleTypeEnum  = "EnumBundle"
 	bundleTypeState = "StateBundle"
@@ -179,13 +180,13 @@ func (r *customFieldResource) Schema(_ context.Context, _ resource.SchemaRequest
 					"bundle_name": schema.StringAttribute{
 						Optional:    true,
 						Computed:    true,
-						Description: "Referenced default bundle name. Supported as input for enum[1] and state[1] bundle-based fields.",
+						Description: "Referenced default bundle name. Supported as input for enum[1], state[1] and ownedField[1] bundle-based fields.",
 					},
 					"default_value_names": schema.ListAttribute{
 						Optional:    true,
 						Computed:    true,
 						ElementType: types.StringType,
-						Description: "Default values for bundle-based enum/state fields, resolved by value name from the referenced bundle.",
+						Description: "Default values for bundle-based enum, state and ownedField fields, resolved by value name from the referenced bundle.",
 					},
 				},
 			},

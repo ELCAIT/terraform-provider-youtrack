@@ -41,9 +41,9 @@ resource "youtrack_project_custom_field" "priority" {
 
 ### Optional
 
-- `bundle_name` (String) The name of the bundle to use for this project custom field. Overrides the default bundle from the global custom field. Supported for EnumProjectCustomField and StateProjectCustomField.
+- `bundle_name` (String) The name of the bundle to use for this project custom field. Overrides the default bundle from the global custom field. Supported for EnumProjectCustomField, StateProjectCustomField and OwnedProjectCustomField.
 - `can_be_empty` (Boolean) Whether the custom field can have an empty value.
-- `default_value_names` (List of String) Default values set for new issues. Values are resolved by name from the effective bundle. Supported for EnumProjectCustomField and StateProjectCustomField.
+- `default_value_names` (List of String) Default values set for new issues. Values are resolved by name from the effective bundle. Supported for EnumProjectCustomField, StateProjectCustomField and OwnedProjectCustomField.
 - `empty_field_text` (String) The placeholder text shown when the field has an empty value.
 - `field_type` (String) The $type of the ProjectCustomField to create (e.g., EnumProjectCustomField, StateProjectCustomField). If omitted, it is derived from the global custom field type.
 - `is_public` (Boolean) Whether basic Read/Update Issue permissions are sufficient to access this field.

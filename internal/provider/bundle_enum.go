@@ -62,8 +62,9 @@ func (r *enumBundleResource) Schema(_ context.Context, _ resource.SchemaRequest,
 	valueAttributes := bundleCommonValueAttributes("enum")
 
 	resp.Schema = schema.Schema{
-		Description: "YouTrack enum bundle resource. This resource manages sets of enum values.",
-		Attributes:  bundleCommonAttributes("enum", valueAttributes),
+		Description: "YouTrack enum bundle resource. This resource manages sets of enum values. " +
+			"Values are matched to existing ones by name, so renaming a value replaces it with a new one.",
+		Attributes: bundleCommonAttributes("enum", valueAttributes),
 	}
 }
 
@@ -135,39 +136,15 @@ func (r *enumBundleResource) Update(ctx context.Context, req resource.UpdateRequ
 		return
 	}
 
-	updated, err := r.client.UpdateEnumBundle(ctx, plan.ID.ValueString(), plan.toAPIModel())
+	updated, err := r.reconcile(ctx, plan)
 	if err != nil {
-		if !isRequiredCustomFieldWorkflowError(err) {
-			resp.Diagnostics.AddError(errUpdatingEnumBundle, fmt.Sprintf(helpers.ErrCouldNotUpdateFmt, "enum bundle", err))
-			return
-		}
-
-		current, getErr := r.client.GetEnumBundleByID(ctx, plan.ID.ValueString())
-		if getErr != nil {
-			resp.Diagnostics.AddError(
-				errUpdatingEnumBundle,
-				fmt.Sprintf("Could not recover current enum bundle for safe update: %v (original update error: %v)", getErr, err),
-			)
-			return
-		}
-
-		fallbackPayload := plan.toAPIModelPreservingExisting(current)
-		updated, err = r.client.UpdateEnumBundle(ctx, plan.ID.ValueString(), fallbackPayload)
-		if err != nil {
-			resp.Diagnostics.AddError(errUpdatingEnumBundle, fmt.Sprintf(helpers.ErrCouldNotUpdateFmt, "enum bundle", err))
-			return
-		}
+		resp.Diagnostics.AddError(errUpdatingEnumBundle, fmt.Sprintf(helpers.ErrCouldNotUpdateFmt, "enum bundle", err))
+		return
 	}
 
 	unexpectedValues := unexpectedEnumValueNames(plan, updated)
 	if len(unexpectedValues) > 0 {
-		resp.Diagnostics.AddError(
-			errUpdatingEnumBundle,
-			fmt.Sprintf(
-				"YouTrack kept values that are not present in configuration: %s. This usually happens when values are still required by workflows or existing issues. Keep these values in configuration or set archived = true instead of removing them.",
-				strings.Join(unexpectedValues, ", "),
-			),
-		)
+		resp.Diagnostics.AddError(errUpdatingEnumBundle, fmt.Sprintf(errKeptBundleValuesFmt, strings.Join(unexpectedValues, ", ")))
 		return
 	}
 

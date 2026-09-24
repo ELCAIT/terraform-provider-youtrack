@@ -30,3 +30,32 @@ resource "youtrack_custom_field" "severity" {
     default_value_names = ["Major"]
   }
 }
+
+resource "youtrack_owned_bundle" "components" {
+  name = "Components"
+
+  values = [
+    {
+      name        = "Backend"
+      description = "APIs and background jobs"
+      owner_login = "admin"
+    },
+    {
+      name        = "Frontend"
+      owner_login = "admin"
+    },
+    {
+      name = "Infrastructure"
+    },
+  ]
+}
+
+resource "youtrack_custom_field" "component" {
+  name          = "Component"
+  field_type_id = "ownedField[1]"
+
+  field_defaults = {
+    can_be_empty = true
+    bundle_name  = youtrack_owned_bundle.components.name
+  }
+}

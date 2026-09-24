@@ -165,6 +165,7 @@ func (p *youtrackProvider) Resources(_ context.Context) []func() resource.Resour
 		settings.NewMailServerResource,
 		NewNestedGroupResource,
 		NewOAuth2AuthModuleResource,
+		NewOwnedBundleResource,
 		settings.NewRestSettingsResource,
 		NewRoleResource,
 		NewRoleAssignmentResource,

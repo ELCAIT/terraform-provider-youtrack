@@ -71,8 +71,9 @@ func (r *stateBundleResource) Schema(_ context.Context, _ resource.SchemaRequest
 	}
 
 	resp.Schema = schema.Schema{
-		Description: "YouTrack state bundle resource. This resource manages sets of state values.",
-		Attributes:  bundleCommonAttributes("state", valueAttributes),
+		Description: "YouTrack state bundle resource. This resource manages sets of state values. " +
+			"Values are matched to existing ones by name, so renaming a value replaces it with a new one.",
+		Attributes: bundleCommonAttributes("state", valueAttributes),
 	}
 }
 
@@ -144,39 +145,15 @@ func (r *stateBundleResource) Update(ctx context.Context, req resource.UpdateReq
 		return
 	}
 
-	updated, err := r.client.UpdateStateBundle(ctx, plan.ID.ValueString(), plan.toAPIModel())
+	updated, err := r.reconcile(ctx, plan)
 	if err != nil {
-		if !isRequiredCustomFieldWorkflowError(err) {
-			resp.Diagnostics.AddError(errUpdatingStateBundle, fmt.Sprintf(helpers.ErrCouldNotUpdateFmt, "state bundle", err))
-			return
-		}
-
-		current, getErr := r.client.GetStateBundleByID(ctx, plan.ID.ValueString())
-		if getErr != nil {
-			resp.Diagnostics.AddError(
-				errUpdatingStateBundle,
-				fmt.Sprintf("Could not recover current state bundle for safe update: %v (original update error: %v)", getErr, err),
-			)
-			return
-		}
-
-		fallbackPayload := plan.toAPIModelPreservingExisting(current)
-		updated, err = r.client.UpdateStateBundle(ctx, plan.ID.ValueString(), fallbackPayload)
-		if err != nil {
-			resp.Diagnostics.AddError(errUpdatingStateBundle, fmt.Sprintf(helpers.ErrCouldNotUpdateFmt, "state bundle", err))
-			return
-		}
+		resp.Diagnostics.AddError(errUpdatingStateBundle, fmt.Sprintf(helpers.ErrCouldNotUpdateFmt, "state bundle", err))
+		return
 	}
 
 	unexpectedValues := unexpectedStateValueNames(plan, updated)
 	if len(unexpectedValues) > 0 {
-		resp.Diagnostics.AddError(
-			errUpdatingStateBundle,
-			fmt.Sprintf(
-				"YouTrack kept values that are not present in configuration: %s. This usually happens when values are still required by workflows or existing issues. Keep these values in configuration or set archived = true instead of removing them.",
-				strings.Join(unexpectedValues, ", "),
-			),
-		)
+		resp.Diagnostics.AddError(errUpdatingStateBundle, fmt.Sprintf(errKeptBundleValuesFmt, strings.Join(unexpectedValues, ", ")))
 		return
 	}
 
