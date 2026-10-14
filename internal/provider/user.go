@@ -78,10 +78,11 @@ func (r *userResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 				},
 			},
 			"password": schema.StringAttribute{
-				Optional:  true,
+				Required:  true,
 				Sensitive: true,
-				Description: "The password of the user. YouTrack never returns it, so Terraform cannot detect " +
-					"a password changed outside of Terraform, and it is empty after an import.",
+				Description: "The password of the user. YouTrack requires one to create an account, even a service " +
+					"account that only authenticates with a token. YouTrack never returns it, so Terraform cannot " +
+					"detect a password changed outside of Terraform, and the first apply after an import sets it.",
 			},
 			"banned": schema.BoolAttribute{
 				Optional:      true,

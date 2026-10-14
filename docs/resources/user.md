@@ -34,12 +34,12 @@ variable "ci_password" {
 
 - `full_name` (String) The display name of the user.
 - `login` (String) The login (username) of the user.
+- `password` (String, Sensitive) The password of the user. YouTrack requires one to create an account, even a service account that only authenticates with a token. YouTrack never returns it, so Terraform cannot detect a password changed outside of Terraform, and the first apply after an import sets it.
 
 ### Optional
 
 - `banned` (Boolean) Whether the user is banned. A banned user cannot log in.
 - `email` (String) The email address of the user. An address cannot be cleared once set, so removing this attribute from the configuration leaves the current address in place.
-- `password` (String, Sensitive) The password of the user. YouTrack never returns it, so Terraform cannot detect a password changed outside of Terraform, and it is empty after an import.
 
 ### Read-Only
 
@@ -53,6 +53,6 @@ The [`terraform import` command](https://developer.hashicorp.com/terraform/cli/c
 
 ```shell
 # The ID is the YouTrack user ID (for example "1-42"), not the login.
-# The password is never read back, so it is empty after an import.
+# The password is never read back, so the first apply after an import sets it.
 terraform import youtrack_user.ci <USER_ID>
 ```
