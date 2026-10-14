@@ -1,3 +1,14 @@
+## 1.3.0
+FEATURES:
+- Add `youtrack_user` resource for managing local YouTrack accounts, such as service accounts used by integrations. It manages `login`, `full_name`, `email`, `password` and `banned`, and imports by user ID. Deleting it deletes the account and hands its content over to the guest user.
+  - `password` is required: YouTrack refuses to create an account without one, even a service account that only authenticates with a token. YouTrack never returns it, so a password changed outside of Terraform is not detected, and the first apply after an import sets it.
+  - An email address cannot be cleared once set; removing `email` from the configuration leaves the current address in place.
+
+IMPROVEMENTS:
+- Upgrade `youtrack-api-client` to v1.11.0.
+
+BUG FIXES:
+
 ## 1.2.0
 FEATURES:
 - Add `youtrack_owned_bundle` resource for managing owned field bundles, the value sets behind `ownedField[1]` custom fields. Each value can have an owner, set with `owner_login`. Values are matched to existing ones by name, so renaming a value replaces it with a new one.
