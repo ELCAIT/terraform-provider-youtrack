@@ -15,3 +15,12 @@ resource "youtrack_nested_group" "child-group" {
   name            = "child-group"
   own_user_logins = ["guest"]
 }
+
+resource "youtrack_nested_group" "service_accounts" {
+  name                              = "service-accounts"
+  description                       = "Service accounts group used in Youtrack"
+  own_user_logins                   = ["svc-ci"]
+  require_two_factor_authentication = false
+  auto_join                         = false
+  depends_on                        = [youtrack_user.ci]
+}

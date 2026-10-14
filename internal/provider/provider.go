@@ -175,6 +175,7 @@ func (p *youtrackProvider) Resources(_ context.Context) []func() resource.Resour
 		NewServiceResource,
 		NewStateBundleResource,
 		settings.NewSystemSettingsResource,
+		NewUserResource,
 	}
 }
 
