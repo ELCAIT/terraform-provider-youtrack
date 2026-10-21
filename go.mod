@@ -1,6 +1,6 @@
 module github.com/elcait/terraform-provider-youtrack
 
-go 1.27.2
+go 1.27.3
 
 require (
 	github.com/elcait/youtrack-api-client v1.11.0
