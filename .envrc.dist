@@ -22,6 +22,8 @@ export YOUTRACK_TEST_PROJECT_LEADER_LOGIN="admin"
 # project custom field acceptance tests: entity ID of a global custom field and its ProjectCustomField $type
 export YOUTRACK_TEST_PROJECT_CUSTOM_FIELD_NAME="..."
 export YOUTRACK_TEST_PROJECT_CUSTOM_FIELD_TYPE="EnumProjectCustomField"
+# project app acceptance tests: package name of an installed app; defaults to a bundled JetBrains workflow
+export YOUTRACK_TEST_PROJECT_APP_NAME="@jetbrains/youtrack-workflow-due-date"
 
 export YOUTRACK_OAUTH2_CLIENT_ID=...
 export YOUTRACK_OAUTH2_CLIENT_SECRET=....

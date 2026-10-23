@@ -1,3 +1,14 @@
+## 1.4.0
+FEATURES:
+- Add `youtrack_project_app` resource for attaching an installed app, workflows included, to a project and enabling or disabling it there. Attached to a template project, the app is inherited by every project created from that template. It takes the app's package name (`app_name`, as listed by `GET /api/admin/apps`, e.g. `@jetbrains/youtrack-workflow-due-date`) and the project entity ID, and imports by `{project_id}/{app_name}`.
+  - An app already attached to the project is adopted rather than attached a second time.
+  - An app detached or disabled outside of Terraform is attached or enabled again on the next apply, and an app reinstalled under a new ID is found again by name.
+  - Needs `youtrack-api-client` v1.12.0: with v1.11.0 an app attached to more than 42 projects is reported as missing from the others, and the resource would plan to recreate it on every run.
+
+IMPROVEMENTS:
+
+BUG FIXES:
+
 ## 1.3.0
 FEATURES:
 - Add `youtrack_user` resource for managing local YouTrack accounts, such as service accounts used by integrations. It manages `login`, `full_name`, `email`, `password` and `banned`, and imports by user ID. Deleting it deletes the account and hands its content over to the guest user.
