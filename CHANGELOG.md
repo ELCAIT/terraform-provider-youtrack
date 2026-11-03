@@ -4,6 +4,9 @@ FEATURES:
   - An app already attached to the project is adopted rather than attached a second time.
   - An app detached or disabled outside of Terraform is attached or enabled again on the next apply, and an app reinstalled under a new ID is found again by name.
   - Needs `youtrack-api-client` v1.12.0: with v1.11.0 an app attached to more than 42 projects is reported as missing from the others, and the resource would plan to recreate it on every run.
+- Add `youtrack_app_global_config` resource for configuring an installed app instance-wide: whether it is enabled (`enabled`), its global settings (`settings`, a JSON object whose keys the app declares in its `settings.json`, best built with `jsonencode()`) and the user groups allowed to use it (`permitted_group_ids`). It takes the app's package name (`app_name`) and imports by that name. Destroying it only removes it from Terraform: the app keeps its configuration.
+  - `settings` is sensitive and written as a whole whenever it changes, so a setting left out is cleared. Changing another attribute, such as `enabled`, leaves it alone. YouTrack never returns the settings an app declares as secrets, such as an API token, so a secret changed outside of Terraform is not detected, and after an import the first apply writes the value from the configuration.
+  - Needs `youtrack-api-client` v1.13.0.
 
 IMPROVEMENTS:
 
