@@ -9,6 +9,7 @@ FEATURES:
   - Needs `youtrack-api-client` v1.13.0.
 
 IMPROVEMENTS:
+- Upgrade `youtrack-api-client` to v1.13.0.
 
 BUG FIXES:
 
