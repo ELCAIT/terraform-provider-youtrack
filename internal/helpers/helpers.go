@@ -23,6 +23,7 @@ const (
 	ErrInvalidEmailAddress          = "Invalid Email Address"
 	ErrInvalidPortNumber            = "Invalid Port Number"
 	ErrInvalidURL                   = "Invalid URL"
+	ErrAttributeEmptyFmt            = "%s must not be empty"
 )
 
 // AssertFieldEqual is a test helper that compares two values and reports an error if they differ.
@@ -99,6 +100,17 @@ func SetStateAndCheckError(ctx context.Context, resp interface{}, state interfac
 	case *resource.ImportStateResponse:
 		diags = r.State.Set(ctx, state)
 		r.Diagnostics.Append(diags...)
+	}
+}
+
+// ValidateNotBlank adds an attribute error with the given summary for every
+// attribute, keyed by its name, that is set to a blank string. Null and unknown
+// values are left to the schema.
+func ValidateNotBlank(attributes map[string]types.String, summary string, diagnostics *diag.Diagnostics) {
+	for name, value := range attributes {
+		if !value.IsNull() && !value.IsUnknown() && strings.TrimSpace(value.ValueString()) == "" {
+			diagnostics.AddAttributeError(path.Root(name), summary, fmt.Sprintf(ErrAttributeEmptyFmt, name))
+		}
 	}
 }
 

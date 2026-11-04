@@ -41,7 +41,6 @@ type appGlobalConfigResource struct {
 type appGlobalConfigResourceModel struct {
 	ID                types.String `tfsdk:"id"`
 	AppName           types.String `tfsdk:"app_name"`
-	AppID             types.String `tfsdk:"app_id"`
 	Enabled           types.Bool   `tfsdk:"enabled"`
 	Settings          types.String `tfsdk:"settings"`
 	PermittedGroupIDs types.Set    `tfsdk:"permitted_group_ids"`
@@ -60,7 +59,7 @@ func (r *appGlobalConfigResource) Schema(_ context.Context, _ resource.SchemaReq
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:    true,
-				Description: "The entity ID of the app.",
+				Description: "The entity ID of the app. It changes when the app is uninstalled and installed again.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
 				},
@@ -71,13 +70,6 @@ func (r *appGlobalConfigResource) Schema(_ context.Context, _ resource.SchemaReq
 					"`@jetbrains/youtrack-workflow-due-date`). This is the package name, not the title shown in the UI.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
-				},
-			},
-			"app_id": schema.StringAttribute{
-				Computed:    true,
-				Description: "The entity ID of the app. It changes when the app is uninstalled and installed again.",
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.UseStateForUnknown(),
 				},
 			},
 			"enabled": schema.BoolAttribute{
@@ -94,6 +86,8 @@ func (r *appGlobalConfigResource) Schema(_ context.Context, _ resource.SchemaReq
 					"The whole document is written whenever this value changes: a key left out is cleared, a secret included. " +
 					"An entity setting, such as a user group, is written as `{ id = \"...\" }`. " +
 					"Only the keys written here are compared with YouTrack. " +
+					"YouTrack leaves out a setting written as `null` or `\"\"`, which counts as unchanged, and stores a list of entities sorted and without duplicates, so their order does not matter. " +
+					"It also drops a key the app does not declare, which then shows as a change on every plan: check its spelling against the app's `settings.json`. " +
 					"Settings the app declares as secrets are never returned by YouTrack, so a secret changed outside of Terraform is not detected, " +
 					"and after an import the first apply writes the value from the configuration. " +
 					"Leave it out to leave the settings of the app alone.",
@@ -194,10 +188,7 @@ func (r *appGlobalConfigResource) ValidateConfig(ctx context.Context, req resour
 		return
 	}
 
-	if !config.AppName.IsNull() && !config.AppName.IsUnknown() && strings.TrimSpace(config.AppName.ValueString()) == "" {
-		resp.Diagnostics.AddAttributeError(path.Root(appGlobalConfigAttrAppName), errInvalidAppGlobalConfig,
-			fmt.Sprintf(errAppGlobalConfigAttributeEmptyFmt, appGlobalConfigAttrAppName))
-	}
+	helpers.ValidateNotBlank(map[string]types.String{appGlobalConfigAttrAppName: config.AppName}, errInvalidAppGlobalConfig, &resp.Diagnostics)
 
 	if config.Settings.IsNull() || config.Settings.IsUnknown() {
 		return

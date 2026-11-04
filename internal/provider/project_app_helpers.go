@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strings"
 
+	helpers "github.com/elcait/terraform-provider-youtrack/internal/helpers"
+
 	youtrack "github.com/elcait/youtrack-api-client/client"
 
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -23,8 +25,9 @@ const (
 
 	errProjectAppProjectIDRequired = "Project ID is required to manage the project app"
 	errProjectAppImportIDInvalid   = "Invalid import ID format. Expected: {project_id}/{app_name}"
-	errProjectAppAttributeEmptyFmt = "%s must not be empty"
-	errProjectAppUsageMismatchFmt  = "YouTrack attached app %q to project %q instead of %q; project_id must be the project entity ID (for example 0-1), not its short name"
+	errProjectAppReplacedFmt       = "app %q was %s outside of Terraform (%s, now %s), so the plan no longer applies; " +
+		"refresh the state, for example with an apply without -refresh=false"
+	errProjectAppUsageMismatchFmt = "YouTrack attached app %q to project %q instead of %q; project_id must be the project entity ID (for example 0-1), not its short name"
 
 	projectAppImportSeparator = "/"
 	projectAppImportParts     = 2
@@ -43,6 +46,10 @@ func (r *projectAppResource) apply(ctx context.Context, m *projectAppResourceMod
 	}
 
 	projectID := m.ProjectID.ValueString()
+	if err = r.checkNotReplaced(ctx, m, app.ID); err != nil {
+		return err
+	}
+
 	usage, err := r.setAppUsage(ctx, app.ID, projectID, m.Enabled.ValueBool())
 	if err != nil {
 		return err
@@ -63,22 +70,50 @@ func (r *projectAppResource) setAppUsage(ctx context.Context, appID, projectID s
 		return r.client.EnableAppForProject(ctx, appID, projectID)
 	}
 
-	usage, err := r.client.GetAppUsageForProject(ctx, appID, projectID)
+	usage, err := r.client.DisableAppForProject(ctx, appID, projectID)
+	if err != nil || usage != nil {
+		return usage, err
+	}
+
+	attached, err := r.client.AttachAppToProject(ctx, appID, projectID)
 	if err != nil {
 		return nil, err
 	}
-
-	if usage == nil {
-		if usage, err = r.client.AttachAppToProject(ctx, appID, projectID); err != nil {
-			return nil, err
-		}
+	if !attached.Enabled {
+		return attached, nil
 	}
 
-	if !usage.Enabled {
-		return usage, nil
+	return r.client.SetAppUsageEnabled(ctx, appID, attached.ID, false)
+}
+
+// checkNotReplaced fails when the app or its usage in the project is no longer
+// the one in the plan, which happens when the app was reinstalled or detached
+// outside of Terraform and the plan was made without a refresh. It runs before
+// any write: the framework would only reject the new ID after the change was
+// made. On create, the plan has no IDs yet and there is nothing to check.
+func (r *projectAppResource) checkNotReplaced(ctx context.Context, m *projectAppResourceModel, appID string) error {
+	if !helpers.HasResourceID(m.ID) {
+		return nil
 	}
 
-	return r.client.SetAppUsageEnabled(ctx, appID, usage.ID, false)
+	if helpers.HasResourceID(m.AppID) && m.AppID.ValueString() != appID {
+		return fmt.Errorf(errProjectAppReplacedFmt, m.AppName.ValueString(), "reinstalled", "app "+m.AppID.ValueString(), appID)
+	}
+
+	usage, err := r.client.GetAppUsageForProject(ctx, appID, m.ProjectID.ValueString())
+	if err != nil {
+		return err
+	}
+
+	now := "none"
+	if usage != nil {
+		now = usage.ID
+	}
+	if now != m.ID.ValueString() {
+		return fmt.Errorf(errProjectAppReplacedFmt, m.AppName.ValueString(), "detached from the project", "usage "+m.ID.ValueString(), now)
+	}
+
+	return nil
 }
 
 // findUsage returns the app ID and the app's usage for the project in m, or a

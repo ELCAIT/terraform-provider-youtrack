@@ -59,12 +59,11 @@ resource "youtrack_app_global_config" "agile" {
 
 - `enabled` (Boolean) Whether the app is enabled. Defaults to `true`; an app disabled outside of Terraform is enabled again on the next apply.
 - `permitted_group_ids` (Set of String) The entity IDs of the user groups allowed to use the app, for example `6-0` for all registered users. Users allowed one by one are left as they are. Leave it out to leave who may use the app alone.
-- `settings` (String, Sensitive) The global settings of the app, as a JSON object. Each app declares its own in its `settings.json`, so the keys depend on the app; build the value with `jsonencode()`. The whole document is written whenever this value changes: a key left out is cleared, a secret included. An entity setting, such as a user group, is written as `{ id = "..." }`. Only the keys written here are compared with YouTrack. Settings the app declares as secrets are never returned by YouTrack, so a secret changed outside of Terraform is not detected, and after an import the first apply writes the value from the configuration. Leave it out to leave the settings of the app alone.
+- `settings` (String, Sensitive) The global settings of the app, as a JSON object. Each app declares its own in its `settings.json`, so the keys depend on the app; build the value with `jsonencode()`. The whole document is written whenever this value changes: a key left out is cleared, a secret included. An entity setting, such as a user group, is written as `{ id = "..." }`. Only the keys written here are compared with YouTrack. YouTrack leaves out a setting written as `null` or `""`, which counts as unchanged, and stores a list of entities sorted and without duplicates, so their order does not matter. It also drops a key the app does not declare, which then shows as a change on every plan: check its spelling against the app's `settings.json`. Settings the app declares as secrets are never returned by YouTrack, so a secret changed outside of Terraform is not detected, and after an import the first apply writes the value from the configuration. Leave it out to leave the settings of the app alone.
 
 ### Read-Only
 
-- `app_id` (String) The entity ID of the app. It changes when the app is uninstalled and installed again.
-- `id` (String) The entity ID of the app.
+- `id` (String) The entity ID of the app. It changes when the app is uninstalled and installed again.
 
 ## Import
 

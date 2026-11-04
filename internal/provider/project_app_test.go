@@ -183,6 +183,8 @@ func TestProjectAppApply(t *testing.T) {
 	tests := []struct {
 		name        string
 		api         *fakeAppsAPI
+		usageID     string // usage ID in the plan, empty on create
+		appID       string // app ID in the plan, empty on create
 		enabled     bool
 		wantErr     bool
 		wantUsageID string
@@ -240,6 +242,31 @@ func TestProjectAppApply(t *testing.T) {
 			wantErr:    true,
 			wantWrites: 1,
 		},
+		{
+			name:        "updates the usage in the plan",
+			api:         installedTestApp(testProjectAppUsage(true)),
+			usageID:     testProjectAppUsageID,
+			appID:       testProjectAppID,
+			enabled:     false,
+			wantUsageID: testProjectAppUsageID,
+			wantWrites:  1,
+		},
+		{
+			name:    "fails without writing when the usage was deleted after the plan",
+			api:     installedTestApp(),
+			usageID: testProjectAppUsageID,
+			appID:   testProjectAppID,
+			enabled: false,
+			wantErr: true,
+		},
+		{
+			name:    "fails without writing when the app was reinstalled after the plan",
+			api:     installedTestApp(testProjectAppUsage(true)),
+			usageID: testProjectAppUsageID,
+			appID:   testProjectAppNewID,
+			enabled: false,
+			wantErr: true,
+		},
 	}
 
 	for _, tc := range tests {
@@ -247,7 +274,10 @@ func TestProjectAppApply(t *testing.T) {
 			t.Parallel()
 
 			r := newProjectAppTestResource(t, tc.api)
-			model := testProjectAppModel("", tc.enabled)
+			model := testProjectAppModel(tc.appID, tc.enabled)
+			if tc.usageID != "" {
+				model.ID = types.StringValue(tc.usageID)
+			}
 
 			err := r.apply(context.Background(), &model)
 			if (err != nil) != tc.wantErr {

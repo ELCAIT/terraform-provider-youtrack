@@ -6,7 +6,6 @@ package provider
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	helpers "github.com/elcait/terraform-provider-youtrack/internal/helpers"
 
@@ -186,11 +185,8 @@ func (r *projectAppResource) ValidateConfig(ctx context.Context, req resource.Va
 		return
 	}
 
-	for attribute, value := range map[string]types.String{projectAppAttrProjectID: config.ProjectID, projectAppAttrAppName: config.AppName} {
-		if !value.IsNull() && !value.IsUnknown() && strings.TrimSpace(value.ValueString()) == "" {
-			resp.Diagnostics.AddAttributeError(path.Root(attribute), errInvalidProjectAppConfig, fmt.Sprintf(errProjectAppAttributeEmptyFmt, attribute))
-		}
-	}
+	helpers.ValidateNotBlank(map[string]types.String{projectAppAttrProjectID: config.ProjectID, projectAppAttrAppName: config.AppName},
+		errInvalidProjectAppConfig, &resp.Diagnostics)
 }
 
 func (r *projectAppResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

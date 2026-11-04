@@ -6,6 +6,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"sort"
@@ -28,8 +29,10 @@ const (
 	errAppGlobalConfigAppNameRequired = "App name is required to manage the app configuration"
 	errAppGlobalConfigReadFmt         = "Could not read app configuration: %v"
 
-	errAppGlobalConfigAttributeEmptyFmt = "%s must not be empty"
-	errAppGlobalConfigSettingsInvalid   = "settings must be a JSON object, for example the result of jsonencode()"
+	errAppGlobalConfigSettingsInvalid = "settings must be a JSON object, for example the result of jsonencode()"
+	errAppGlobalConfigNoVisibility    = "YouTrack did not report who may use the app, so its permitted groups were not written"
+	errAppGlobalConfigReinstalledFmt  = "app %q was reinstalled outside of Terraform (ID %s, now %s), so the plan no longer applies; " +
+		"refresh the state, for example with an apply without -refresh=false"
 
 	appGlobalConfigAttrAppName  = "app_name"
 	appGlobalConfigAttrSettings = "settings"
@@ -66,49 +69,64 @@ func (r *appGlobalConfigResource) apply(ctx context.Context, m, prior *appGlobal
 		return fmt.Errorf("could not find app %q installed on YouTrack: %w", m.AppName.ValueString(), err)
 	}
 
+	if err = m.checkNotReinstalled(prior, app.ID); err != nil {
+		return err
+	}
+
 	enabled := m.Enabled.ValueBool()
 	update := youtrack.AppGlobalConfigUpdate{Enabled: &enabled}
 	if m.settingsChanged(prior) {
 		update.GlobalSettings = json.RawMessage(m.Settings.ValueString())
 	}
 
-	if _, err = r.client.SetAppGlobalConfig(ctx, app.ID, update); err != nil {
+	current, err := r.client.SetAppGlobalConfig(ctx, app.ID, update)
+	if err != nil {
 		return err
 	}
 
 	if m.groupsChanged(prior) {
-		if err = r.applyVisibility(ctx, app.ID, m); err != nil {
+		if err = r.applyVisibility(ctx, app.ID, m, current); err != nil {
 			return err
 		}
 	}
 
 	m.ID = types.StringValue(app.ID)
-	m.AppID = types.StringValue(app.ID)
 	return nil
 }
 
+// checkNotReinstalled fails when the app in prior, the current state, is no
+// longer the installed one: it was reinstalled outside of Terraform and the plan
+// was made without a refresh. apply calls it before any write, because the
+// framework would only reject the new ID after the app was changed.
+func (m *appGlobalConfigResourceModel) checkNotReinstalled(prior *appGlobalConfigResourceModel, appID string) error {
+	if prior == nil || !helpers.HasResourceID(prior.ID) || prior.ID.ValueString() == appID {
+		return nil
+	}
+
+	return fmt.Errorf(errAppGlobalConfigReinstalledFmt, m.AppName.ValueString(), prior.ID.ValueString(), appID)
+}
+
 // applyVisibility replaces the permitted groups of the app. The permitted users
-// are not managed here, so the ones the app already has are written back.
-func (r *appGlobalConfigResource) applyVisibility(ctx context.Context, appID string, m *appGlobalConfigResourceModel) error {
+// are not managed here, so the ones in current, the configuration the app has
+// now, are written back.
+func (r *appGlobalConfigResource) applyVisibility(ctx context.Context, appID string, m *appGlobalConfigResourceModel, current *youtrack.AppGlobalConfig) error {
 	var diags diag.Diagnostics
 	groupIDs, ok := helpers.SetToStringSlice(ctx, m.PermittedGroupIDs, &diags)
 	if !ok {
 		return fmt.Errorf("could not read permitted_group_ids: %s", diags)
 	}
 
-	current, err := r.client.GetAppGlobalConfig(ctx, appID)
-	if err != nil {
-		return err
+	// without them, writing the groups would also remove every permitted user
+	if current.VisibilitySettings == nil {
+		return errors.New(errAppGlobalConfigNoVisibility)
 	}
 
 	var userIDs []string
-	if current.VisibilitySettings != nil {
-		for _, user := range current.VisibilitySettings.PermittedUsers {
-			userIDs = append(userIDs, user.ID)
-		}
+	for _, user := range current.VisibilitySettings.PermittedUsers {
+		userIDs = append(userIDs, user.ID)
 	}
 
-	_, err = r.client.SetAppVisibility(ctx, appID, groupIDs, userIDs)
+	_, err := r.client.SetAppVisibility(ctx, appID, groupIDs, userIDs)
 	return err
 }
 
@@ -117,7 +135,7 @@ func (r *appGlobalConfigResource) applyVisibility(ctx context.Context, appID str
 // longer exists, which is the case after the app was reinstalled. An error
 // matching youtrack.IsNotFound means the app is no longer installed at all.
 func (r *appGlobalConfigResource) readConfig(ctx context.Context, m appGlobalConfigResourceModel) (string, *youtrack.AppGlobalConfig, error) {
-	if appID := m.AppID.ValueString(); appID != "" {
+	if appID := m.ID.ValueString(); appID != "" {
 		config, err := r.client.GetAppGlobalConfig(ctx, appID)
 		if !youtrack.IsNotFound(err) {
 			return appID, config, err
@@ -139,7 +157,6 @@ func (r *appGlobalConfigResource) readConfig(ctx context.Context, m appGlobalCon
 // and permitted_group_ids are only read when the configuration manages them.
 func (m *appGlobalConfigResourceModel) fromAPIModel(ctx context.Context, appID string, config *youtrack.AppGlobalConfig) error {
 	m.ID = types.StringValue(appID)
-	m.AppID = types.StringValue(appID)
 	m.Enabled = types.BoolValue(config.Enabled)
 
 	if !m.Settings.IsNull() {
@@ -195,6 +212,10 @@ func reconcileSettings(written, read string) (string, error) {
 	for key, writtenValue := range writtenDoc {
 		readValue, present := readDoc[key]
 		if present && settingMatches(writtenValue, readValue) {
+			continue
+		}
+		// YouTrack does not store a setting written as null or "", it leaves it out
+		if !present && (writtenValue == nil || writtenValue == "") {
 			continue
 		}
 		drifted = true
@@ -257,7 +278,17 @@ func objectMatches(written map[string]any, read any) bool {
 
 func arrayMatches(written []any, read any) bool {
 	r, ok := read.([]any)
-	if !ok || len(r) != len(written) {
+	if !ok {
+		return false
+	}
+
+	// YouTrack stores a list of entities sorted by id and without duplicates
+	if writtenIDs, isEntityList := entityIDs(written); isEntityList {
+		readIDs, _ := entityIDs(r)
+		return reflect.DeepEqual(writtenIDs, readIDs)
+	}
+
+	if len(r) != len(written) {
 		return false
 	}
 
@@ -268,4 +299,27 @@ func arrayMatches(written []any, read any) bool {
 	}
 
 	return true
+}
+
+// entityIDs returns the set of ids in a non-empty list made only of entities,
+// and false for any other list.
+func entityIDs(list []any) (map[any]bool, bool) {
+	if len(list) == 0 {
+		return nil, false
+	}
+
+	ids := make(map[any]bool, len(list))
+	for _, element := range list {
+		entity, ok := element.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		id, ok := entity[entityIDKey]
+		if !ok {
+			return nil, false
+		}
+		ids[id] = true
+	}
+
+	return ids, true
 }

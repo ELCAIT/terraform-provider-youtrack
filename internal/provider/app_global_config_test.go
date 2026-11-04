@@ -64,6 +64,34 @@ func TestReconcileSettings(t *testing.T) {
 			read:    `{"youtrackUrl":"http://youtrack:8080"}`,
 			want:    map[string]any{"youtrackUrl": "http://youtrack:8080"},
 		},
+		{name: "null left out by YouTrack holds", written: `{"youtrackUrl":"http://youtrack:8080","webhookUrl":null}`, read: `{"youtrackUrl":"http://youtrack:8080"}`},
+		{name: "empty string left out by YouTrack holds", written: `{"youtrackUrl":"http://youtrack:8080","webhookUrl":""}`, read: `{"youtrackUrl":"http://youtrack:8080"}`},
+		{
+			name:    "empty string set in YouTrack is reported",
+			written: `{"webhookUrl":""}`,
+			read:    `{"webhookUrl":"http://other"}`,
+			want:    map[string]any{"webhookUrl": "http://other"},
+		},
+		{name: "entities in another order hold", written: `{"groups":[{"id":"4-1"},{"id":"4-0"}]}`, read: `{"groups":[{"id":"4-0","name":"a"},{"id":"4-1","name":"b"}]}`},
+		{name: "duplicate entity merged by YouTrack holds", written: `{"groups":[{"id":"4-0"},{"id":"4-1"},{"id":"4-1"}]}`, read: `{"groups":[{"id":"4-0"},{"id":"4-1"}]}`},
+		{
+			name:    "missing entity is reported",
+			written: `{"groups":[{"id":"4-0"},{"id":"4-1"}]}`,
+			read:    `{"groups":[{"id":"4-0"}]}`,
+			want:    map[string]any{"groups": []any{map[string]any{"id": "4-0"}}},
+		},
+		{
+			name:    "entity list emptied in YouTrack is reported",
+			written: `{"groups":[{"id":"4-0"}]}`,
+			read:    `{"groups":[]}`,
+			want:    map[string]any{"groups": []any{}},
+		},
+		{
+			name:    "plain values keep their order",
+			written: `{"tags":["a","b"]}`,
+			read:    `{"tags":["b","a"]}`,
+			want:    map[string]any{"tags": []any{"b", "a"}},
+		},
 		{name: "key not written is ignored", written: `{"youtrackUrl":"http://youtrack:8080"}`, read: `{"youtrackUrl":"http://youtrack:8080","extra":1}`},
 		{name: "settings cleared in YouTrack", written: `{"youtrackUrl":"http://youtrack:8080"}`, read: ``, want: map[string]any{}},
 		{name: "invalid state", written: `not json`, read: testSettingsRead, wantErr: true},
@@ -126,7 +154,7 @@ func TestAppGlobalConfigFromAPIModel(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if m.Enabled.ValueBool() || m.ID.ValueString() != "151-1" || m.AppID.ValueString() != "151-1" {
+		if m.Enabled.ValueBool() || m.ID.ValueString() != "151-1" {
 			t.Fatalf("unexpected model: %+v", m)
 		}
 		if m.Settings.ValueString() != testSettingsWritten {
@@ -229,6 +257,35 @@ func TestAppGlobalConfigWritesOnlyWhatChanged(t *testing.T) {
 
 			helpers.AssertFieldEqual(t, "settingsChanged", tc.plan.settingsChanged(tc.prior), tc.wantSettings)
 			helpers.AssertFieldEqual(t, "groupsChanged", tc.plan.groupsChanged(tc.prior), tc.wantGroups)
+		})
+	}
+}
+
+func TestAppGlobalConfigCheckNotReinstalled(t *testing.T) {
+	t.Parallel()
+
+	state := func(appID types.String) *appGlobalConfigResourceModel {
+		return &appGlobalConfigResourceModel{ID: appID}
+	}
+
+	tests := []struct {
+		name    string
+		prior   *appGlobalConfigResourceModel
+		wantErr bool
+	}{
+		{name: "create has no prior state", prior: nil},
+		{name: "same app", prior: state(types.StringValue("151-1"))},
+		{name: "no app ID in state", prior: state(types.StringNull())},
+		{name: "app reinstalled under a new ID", prior: state(types.StringValue("151-0")), wantErr: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			m := appGlobalConfigResourceModel{AppName: types.StringValue("my-app")}
+			err := m.checkNotReinstalled(tc.prior, "151-1")
+			helpers.AssertFieldEqual(t, "error", err != nil, tc.wantErr)
 		})
 	}
 }

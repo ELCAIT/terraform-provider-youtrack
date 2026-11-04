@@ -43,7 +43,7 @@ func testAccDisableApp(t *testing.T) func(*terraform.State) error {
 		}
 
 		disabled := false
-		_, err = client.SetAppGlobalConfig(context.Background(), rs.Primary.Attributes["app_id"], youtrack.AppGlobalConfigUpdate{Enabled: &disabled})
+		_, err = client.SetAppGlobalConfig(context.Background(), rs.Primary.Attributes["id"], youtrack.AppGlobalConfigUpdate{Enabled: &disabled})
 		return err
 	}
 }
@@ -62,7 +62,6 @@ func TestAccAppGlobalConfig(t *testing.T) {
 				Config: testAccAppGlobalConfigConfig(appName, true),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttrSet(accAppGlobalConfigResource, "id"),
-					resource.TestCheckResourceAttrSet(accAppGlobalConfigResource, "app_id"),
 					resource.TestCheckResourceAttr(accAppGlobalConfigResource, "app_name", appName),
 					resource.TestCheckResourceAttr(accAppGlobalConfigResource, "enabled", "true"),
 				),
@@ -91,6 +90,121 @@ func TestAccAppGlobalConfig(t *testing.T) {
 				},
 				ImportStateVerify:                    true,
 				ImportStateVerifyIdentifierAttribute: "app_name",
+			},
+		},
+	})
+}
+
+func testAccAppGlobalConfigGroupsConfig(appName, groupName string, withGroup bool) string {
+	groups := "[]"
+	if withGroup {
+		groups = "[data.youtrack_group.test.id]"
+	}
+
+	return providerBlock() + fmt.Sprintf(`
+data "youtrack_group" "test" {
+  name = %q
+}
+
+resource "youtrack_app_global_config" "test" {
+  app_name            = %q
+  enabled             = true
+  permitted_group_ids = %s
+}
+`, groupName, appName, groups)
+}
+
+// testAccRestoreVisibility puts back who may use the app once the test is
+// done: destroying the resource leaves the visibility it wrote.
+func testAccRestoreVisibility(t *testing.T, client *youtrack.Client, appID string) {
+	t.Helper()
+
+	before, err := client.GetAppGlobalConfig(context.Background(), appID)
+	if err != nil {
+		t.Fatalf("could not read the app configuration: %v", err)
+	}
+
+	var groups, users []string
+	for _, g := range before.VisibilitySettings.PermittedGroups {
+		groups = append(groups, g.ID)
+	}
+	for _, u := range before.VisibilitySettings.PermittedUsers {
+		users = append(users, u.ID)
+	}
+
+	t.Cleanup(func() {
+		if _, err := client.SetAppVisibility(context.Background(), appID, groups, users); err != nil {
+			t.Errorf("could not restore the app visibility: %v", err)
+		}
+	})
+}
+
+// testAccPermitUser allows the user to use the app outside of Terraform,
+// keeping the groups Terraform wrote.
+func testAccPermitUser(client *youtrack.Client, appID, userID string) resource.TestCheckFunc {
+	return func(s *terraform.State) error {
+		groupID := s.RootModule().Resources[accAppGlobalConfigResource].Primary.Attributes["permitted_group_ids.0"]
+		_, err := client.SetAppVisibility(context.Background(), appID, []string{groupID}, []string{userID})
+		return err
+	}
+}
+
+func testAccCheckUserPermitted(client *youtrack.Client, appID, userID string) resource.TestCheckFunc {
+	return func(*terraform.State) error {
+		config, err := client.GetAppGlobalConfig(context.Background(), appID)
+		if err != nil {
+			return err
+		}
+		for _, u := range config.VisibilitySettings.PermittedUsers {
+			if u.ID == userID {
+				return nil
+			}
+		}
+		return fmt.Errorf("user %s is no longer permitted: %+v", userID, config.VisibilitySettings)
+	}
+}
+
+// TestAccAppGlobalConfigKeepsPermittedUsers proves that writing the permitted
+// groups writes back the permitted users, which Terraform does not manage.
+func TestAccAppGlobalConfigKeepsPermittedUsers(t *testing.T) {
+	skipUnlessAcc(t)
+
+	groupName, login := os.Getenv(envAccGroupName), os.Getenv(envAccUser)
+	if groupName == "" || login == "" {
+		t.Skip("set YOUTRACK_TEST_GROUP_NAME and YOUTRACK_TEST_USER to run this test")
+	}
+
+	client, err := youtrack.NewClient(os.Getenv(envAccURL), os.Getenv(envAccToken))
+	if err != nil {
+		t.Fatal(err)
+	}
+	appName := accProjectAppName()
+	app, err := client.GetAppByName(context.Background(), appName)
+	if err != nil {
+		t.Fatalf("could not find app %q: %v", appName, err)
+	}
+	user, err := client.GetUserByLogin(context.Background(), login)
+	if err != nil {
+		t.Fatalf("could not find user %q: %v", login, err)
+	}
+	testAccRestoreVisibility(t, client, app.ID)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProviderFactories(),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccAppGlobalConfigGroupsConfig(appName, groupName, true),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(accAppGlobalConfigResource, "permitted_group_ids.#", "1"),
+					testAccPermitUser(client, app.ID, user.Id),
+				),
+			},
+			{
+				Config: testAccAppGlobalConfigGroupsConfig(appName, groupName, false),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(accAppGlobalConfigResource, "permitted_group_ids.#", "0"),
+					testAccCheckUserPermitted(client, app.ID, user.Id),
+				),
 			},
 		},
 	})
