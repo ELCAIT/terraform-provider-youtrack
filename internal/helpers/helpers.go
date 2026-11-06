@@ -3,7 +3,9 @@ package helpers
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/mail"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -107,11 +109,25 @@ func SetStateAndCheckError(ctx context.Context, resp interface{}, state interfac
 // attribute, keyed by its name, that is set to a blank string. Null and unknown
 // values are left to the schema.
 func ValidateNotBlank(attributes map[string]types.String, summary string, diagnostics *diag.Diagnostics) {
-	for name, value := range attributes {
-		if !value.IsNull() && !value.IsUnknown() && strings.TrimSpace(value.ValueString()) == "" {
+	for _, name := range slices.Sorted(maps.Keys(attributes)) {
+		if value := attributes[name]; !value.IsNull() && !value.IsUnknown() && strings.TrimSpace(value.ValueString()) == "" {
 			diagnostics.AddAttributeError(path.Root(name), summary, fmt.Sprintf(ErrAttributeEmptyFmt, name))
 		}
 	}
+}
+
+// SplitImportID splits an import ID of the form {parent}/{child}, such as
+// {project_id}/{app_name}. Only the first "/" splits, because a child such as
+// the app name @jetbrains/youtrack-workflow-due-date may contain one. Both parts
+// are trimmed and must not be blank.
+func SplitImportID(id string) (parent, child string, ok bool) {
+	parent, child, found := strings.Cut(id, "/")
+	parent, child = strings.TrimSpace(parent), strings.TrimSpace(child)
+	if !found || parent == "" || child == "" {
+		return "", "", false
+	}
+
+	return parent, child, true
 }
 
 // ValidateEmailField validates that a string field contains a valid email address if not empty.

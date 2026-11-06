@@ -61,16 +61,29 @@ func (m *appGlobalConfigResourceModel) groupsChanged(prior *appGlobalConfigResou
 
 // apply writes the configuration in m to the app named in it, then records the
 // result in m. prior is the current state, nil on create: settings and permitted
-// groups are only written when they changed. The app is looked up by name on
-// every call, so an app that was reinstalled under a new ID is still found.
+// groups are only written when they changed. The app is looked up by its ID in
+// prior and by name when that ID is gone, so a reinstalled app is still found.
 func (r *appGlobalConfigResource) apply(ctx context.Context, m, prior *appGlobalConfigResourceModel) error {
-	app, err := r.client.GetAppByName(ctx, m.AppName.ValueString())
-	if err != nil {
-		return fmt.Errorf("could not find app %q installed on YouTrack: %w", m.AppName.ValueString(), err)
+	lookup := *m
+	lookup.ID = types.StringNull()
+	if prior != nil {
+		lookup.ID = prior.ID
 	}
 
-	if err = m.checkNotReinstalled(prior, app.ID); err != nil {
+	appID, current, err := r.readConfig(ctx, lookup)
+	if err != nil {
+		return fmt.Errorf("could not read app %q on YouTrack: %w", m.AppName.ValueString(), err)
+	}
+
+	if err = m.checkNotReinstalled(prior, appID); err != nil {
 		return err
+	}
+
+	// before the settings: a failed write here must not leave the whole settings document replaced
+	if m.groupsChanged(prior) {
+		if err = r.applyVisibility(ctx, appID, m, current); err != nil {
+			return err
+		}
 	}
 
 	enabled := m.Enabled.ValueBool()
@@ -79,18 +92,11 @@ func (r *appGlobalConfigResource) apply(ctx context.Context, m, prior *appGlobal
 		update.GlobalSettings = json.RawMessage(m.Settings.ValueString())
 	}
 
-	current, err := r.client.SetAppGlobalConfig(ctx, app.ID, update)
-	if err != nil {
+	if _, err = r.client.SetAppGlobalConfig(ctx, appID, update); err != nil {
 		return err
 	}
 
-	if m.groupsChanged(prior) {
-		if err = r.applyVisibility(ctx, app.ID, m, current); err != nil {
-			return err
-		}
-	}
-
-	m.ID = types.StringValue(app.ID)
+	m.ID = types.StringValue(appID)
 	return nil
 }
 
@@ -214,8 +220,7 @@ func reconcileSettings(written, read string) (string, error) {
 		if present && settingMatches(writtenValue, readValue) {
 			continue
 		}
-		// YouTrack does not store a setting written as null or "", it leaves it out
-		if !present && (writtenValue == nil || writtenValue == "") {
+		if !present && isEmptySetting(writtenValue) {
 			continue
 		}
 		drifted = true
@@ -236,6 +241,24 @@ func reconcileSettings(written, read string) (string, error) {
 	}
 
 	return string(out), nil
+}
+
+// isEmptySetting reports whether a written setting is empty: null, "", [] or
+// {}. YouTrack does not store null or "" and leaves the key out, so a missing
+// key written empty counts as holding. YouTrack keeps [] on an entity list; []
+// or {} elsewhere could not be checked and is treated the same way to be safe.
+func isEmptySetting(v any) bool {
+	switch w := v.(type) {
+	case nil:
+		return true
+	case string:
+		return w == ""
+	case []any:
+		return len(w) == 0
+	case map[string]any:
+		return len(w) == 0
+	}
+	return false
 }
 
 // settingMatches reports whether the value YouTrack returned for a setting holds

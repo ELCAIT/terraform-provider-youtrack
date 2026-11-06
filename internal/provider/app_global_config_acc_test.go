@@ -48,6 +48,32 @@ func testAccDisableApp(t *testing.T) func(*terraform.State) error {
 	}
 }
 
+// testAccCheckAppKeptEnabled checks that destroying the resource left the app
+// installed and enabled, as the last step configured it.
+func testAccCheckAppKeptEnabled(appName string) resource.TestCheckFunc {
+	return func(_ *terraform.State) error {
+		client, err := youtrack.NewClient(os.Getenv(envAccURL), os.Getenv(envAccToken))
+		if err != nil {
+			return err
+		}
+
+		app, err := client.GetAppByName(context.Background(), appName)
+		if err != nil {
+			return err
+		}
+
+		config, err := client.GetAppGlobalConfig(context.Background(), app.ID)
+		if err != nil {
+			return err
+		}
+		if !config.Enabled {
+			return fmt.Errorf("app %q was disabled when the resource was destroyed", appName)
+		}
+
+		return nil
+	}
+}
+
 // TestAccAppGlobalConfig leaves the app enabled: destroying the resource keeps
 // the configuration it wrote. It does not set settings, which depend on the app.
 func TestAccAppGlobalConfig(t *testing.T) {
@@ -57,6 +83,7 @@ func TestAccAppGlobalConfig(t *testing.T) {
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testProviderFactories(),
+		CheckDestroy:             testAccCheckAppKeptEnabled(appName),
 		Steps: []resource.TestStep{
 			{
 				Config: testAccAppGlobalConfigConfig(appName, true),

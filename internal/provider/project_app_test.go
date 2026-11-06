@@ -36,6 +36,7 @@ type fakeAppsAPI struct {
 	usages        map[string][]youtrack.AppUsage
 	attachEnabled bool   // enabled state YouTrack gives a freshly attached usage
 	attachAs      string // project ID YouTrack reports on attach, when it differs from the one sent
+	failEnabled   bool   // answer 500 to a change of a usage's enabled state
 	writes        []string
 }
 
@@ -100,6 +101,10 @@ func (f *fakeAppsAPI) serveUsage(t *testing.T, w http.ResponseWriter, req *http.
 		}
 		if req.Method == http.MethodDelete {
 			f.usages[appID] = append(usages[:i], usages[i+1:]...)
+			return
+		}
+		if f.failEnabled {
+			http.Error(w, "boom", http.StatusInternalServerError)
 			return
 		}
 		var payload struct {
@@ -189,6 +194,7 @@ func TestProjectAppApply(t *testing.T) {
 		wantErr     bool
 		wantUsageID string
 		wantWrites  int
+		wantNoUsage bool // the app must end up not attached
 	}{
 		{
 			name:        "attaches and enables an app that is not attached",
@@ -223,6 +229,19 @@ func TestProjectAppApply(t *testing.T) {
 			enabled:     false,
 			wantUsageID: testProjectAppNewUsage,
 			wantWrites:  2,
+		},
+		{
+			name: "detaches the app again when disabling it after the attach fails",
+			api: func() *fakeAppsAPI {
+				api := installedTestApp()
+				api.attachEnabled = true
+				api.failEnabled = true
+				return api
+			}(),
+			enabled:     false,
+			wantErr:     true,
+			wantWrites:  3, // attach, failed disable, detach
+			wantNoUsage: true,
 		},
 		{
 			name:    "fails when the app is not installed",
@@ -284,6 +303,9 @@ func TestProjectAppApply(t *testing.T) {
 				t.Fatalf("apply() error = %v, wantErr %v", err, tc.wantErr)
 			}
 			helpers.AssertFieldEqual(t, "writes", len(tc.api.writes), tc.wantWrites)
+			if tc.wantNoUsage {
+				helpers.AssertFieldEqual(t, "usages", len(tc.api.usages[testProjectAppID]), 0)
+			}
 			if tc.wantErr {
 				return
 			}
@@ -359,72 +381,6 @@ func TestProjectAppFindUsage(t *testing.T) {
 			}
 			helpers.AssertFieldEqual(t, "appID", appID, tc.wantAppID)
 			helpers.AssertFieldEqual(t, "usage found", usage != nil, tc.wantUsage)
-		})
-	}
-}
-
-func TestProjectAppDetach(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		api        *fakeAppsAPI
-		wantWrites []string
-	}{
-		{
-			name:       "deletes the usage of an attached app",
-			api:        installedTestApp(testProjectAppUsage(true)),
-			wantWrites: []string{http.MethodDelete + " " + testProjectAppsPath + "/" + testProjectAppID + "/usages/" + testProjectAppUsageID},
-		},
-		{
-			name: "succeeds without writing when the app is not attached",
-			api:  installedTestApp(),
-		},
-		{
-			name: "succeeds without writing when the app is no longer installed",
-			api:  &fakeAppsAPI{usages: map[string][]youtrack.AppUsage{}},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			r := newProjectAppTestResource(t, tc.api)
-			if err := r.detach(context.Background(), testProjectAppModel(testProjectAppID, true)); err != nil {
-				t.Fatalf("detach() unexpected error: %v", err)
-			}
-			helpers.AssertFieldEqual(t, "writes", strings.Join(tc.api.writes, ","), strings.Join(tc.wantWrites, ","))
-		})
-	}
-}
-
-func TestParseProjectAppImportID(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		id            string
-		wantOK        bool
-		wantProjectID string
-		wantAppName   string
-	}{
-		{id: testProjectAppOtherPID + "/" + testProjectAppPlainApp, wantOK: true, wantProjectID: testProjectAppOtherPID, wantAppName: testProjectAppPlainApp},
-		{id: testProjectAppOtherPID + "/" + testProjectAppName, wantOK: true, wantProjectID: testProjectAppOtherPID, wantAppName: testProjectAppName},
-		{id: " " + testProjectAppOtherPID + " / " + testProjectAppPlainApp + " ", wantOK: true, wantProjectID: testProjectAppOtherPID, wantAppName: testProjectAppPlainApp},
-		{id: testProjectAppOtherPID},
-		{id: testProjectAppOtherPID + "/"},
-		{id: "/" + testProjectAppPlainApp},
-		{id: ""},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.id, func(t *testing.T) {
-			t.Parallel()
-
-			projectID, appName, ok := parseProjectAppImportID(tc.id)
-			helpers.AssertFieldEqual(t, "ok", ok, tc.wantOK)
-			helpers.AssertFieldEqual(t, "projectID", projectID, tc.wantProjectID)
-			helpers.AssertFieldEqual(t, "appName", appName, tc.wantAppName)
 		})
 	}
 }

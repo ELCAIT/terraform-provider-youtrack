@@ -86,7 +86,7 @@ func (r *appGlobalConfigResource) Schema(_ context.Context, _ resource.SchemaReq
 					"The whole document is written whenever this value changes: a key left out is cleared, a secret included. " +
 					"An entity setting, such as a user group, is written as `{ id = \"...\" }`. " +
 					"Only the keys written here are compared with YouTrack. " +
-					"YouTrack leaves out a setting written as `null` or `\"\"`, which counts as unchanged, and stores a list of entities sorted and without duplicates, so their order does not matter. " +
+					"A setting written as `null`, `\"\"`, `[]` or `{}` that YouTrack leaves out counts as unchanged. YouTrack stores a list of entities sorted and without duplicates, so their order does not matter. " +
 					"It also drops a key the app does not declare, which then shows as a change on every plan: check its spelling against the app's `settings.json`. " +
 					"Settings the app declares as secrets are never returned by YouTrack, so a secret changed outside of Terraform is not detected, " +
 					"and after an import the first apply writes the value from the configuration. " +

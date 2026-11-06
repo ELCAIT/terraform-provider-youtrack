@@ -6,6 +6,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"testing"
 	"time"
@@ -41,6 +42,18 @@ func testAccProjectAppConfig(projectName, shortName, leaderLogin, appName string
 		enabledLine = fmt.Sprintf("enabled    = %t", *enabled)
 	}
 
+	return testAccProjectAppProjectConfig(projectName, shortName, leaderLogin) + fmt.Sprintf(`
+resource "youtrack_project_app" "test" {
+  project_id = youtrack_project.parent.id
+  app_name   = %q
+  %s
+}
+`, appName, enabledLine)
+}
+
+// testAccProjectAppProjectConfig is the template project alone. Without the
+// app, a step destroys youtrack_project_app while the project stays.
+func testAccProjectAppProjectConfig(projectName, shortName, leaderLogin string) string {
 	return providerBlock() + fmt.Sprintf(`
 resource "youtrack_project" "parent" {
   name         = %q
@@ -48,13 +61,42 @@ resource "youtrack_project" "parent" {
   leader_login = %q
   template     = true
 }
-
-resource "youtrack_project_app" "test" {
-  project_id = youtrack_project.parent.id
-  app_name   = %q
-  %s
+`, projectName, shortName, leaderLogin)
 }
-`, projectName, shortName, leaderLogin, appName, enabledLine)
+
+// testAccCaptureProjectApp copies the attributes of the resource into attrs, so
+// a later step can check the app after the resource is gone from state.
+func testAccCaptureProjectApp(attrs map[string]string) resource.TestCheckFunc {
+	return func(s *terraform.State) error {
+		rs, ok := s.RootModule().Resources[accProjectAppResource]
+		if !ok {
+			return fmt.Errorf("resource %q not found", accProjectAppResource)
+		}
+
+		maps.Copy(attrs, rs.Primary.Attributes)
+		return nil
+	}
+}
+
+// testAccCheckProjectAppDetached checks that destroying the resource detached
+// the app from the project in YouTrack.
+func testAccCheckProjectAppDetached(attrs map[string]string) resource.TestCheckFunc {
+	return func(_ *terraform.State) error {
+		client, err := youtrack.NewClient(os.Getenv(envAccURL), os.Getenv(envAccToken))
+		if err != nil {
+			return err
+		}
+
+		usage, err := client.GetAppUsageForProject(context.Background(), attrs["app_id"], attrs["project_id"])
+		if err != nil {
+			return err
+		}
+		if usage != nil {
+			return fmt.Errorf("app %s is still attached to project %s as usage %s", attrs["app_id"], attrs["project_id"], usage.ID)
+		}
+
+		return nil
+	}
 }
 
 // testAccDetachProjectApp detaches the app outside of Terraform, so the next
@@ -88,6 +130,7 @@ func TestAccProjectApp(t *testing.T) {
 	shortName := fmt.Sprintf("PAPP%d", suffix%10000)
 
 	disabled, enabled := false, true
+	attached := map[string]string{}
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testProviderFactories(),
@@ -118,6 +161,7 @@ func TestAccProjectApp(t *testing.T) {
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttrSet(accProjectAppResource, "id"),
 					resource.TestCheckResourceAttr(accProjectAppResource, "enabled", "true"),
+					testAccCaptureProjectApp(attached),
 				),
 			},
 			{
@@ -131,6 +175,10 @@ func TestAccProjectApp(t *testing.T) {
 					}
 					return rs.Primary.Attributes["project_id"] + "/" + rs.Primary.Attributes["app_name"], nil
 				},
+			},
+			{
+				Config: testAccProjectAppProjectConfig(projectName, shortName, leaderLogin),
+				Check:  testAccCheckProjectAppDetached(attached),
 			},
 		},
 	})

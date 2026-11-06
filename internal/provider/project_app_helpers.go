@@ -5,8 +5,8 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"strings"
 
 	helpers "github.com/elcait/terraform-provider-youtrack/internal/helpers"
 
@@ -27,10 +27,8 @@ const (
 	errProjectAppImportIDInvalid   = "Invalid import ID format. Expected: {project_id}/{app_name}"
 	errProjectAppReplacedFmt       = "app %q was %s outside of Terraform (%s, now %s), so the plan no longer applies; " +
 		"refresh the state, for example with an apply without -refresh=false"
+	errProjectAppRollbackFmt      = "the app was left attached and enabled, and detaching it failed: %w"
 	errProjectAppUsageMismatchFmt = "YouTrack attached app %q to project %q instead of %q; project_id must be the project entity ID (for example 0-1), not its short name"
-
-	projectAppImportSeparator = "/"
-	projectAppImportParts     = 2
 
 	projectAppAttrProjectID = "project_id"
 	projectAppAttrAppName   = "app_name"
@@ -46,11 +44,16 @@ func (r *projectAppResource) apply(ctx context.Context, m *projectAppResourceMod
 	}
 
 	projectID := m.ProjectID.ValueString()
-	if err = r.checkNotReplaced(ctx, m, app.ID); err != nil {
+	usage, err := r.client.GetAppUsageForProject(ctx, app.ID, projectID)
+	if err != nil {
 		return err
 	}
 
-	usage, err := r.setAppUsage(ctx, app.ID, projectID, m.Enabled.ValueBool())
+	if err = m.checkNotReplaced(app.ID, usage); err != nil {
+		return err
+	}
+
+	usage, err = r.setAppUsage(ctx, app.ID, projectID, usage, m.Enabled.ValueBool())
 	if err != nil {
 		return err
 	}
@@ -63,46 +66,46 @@ func (r *projectAppResource) apply(ctx context.Context, m *projectAppResourceMod
 	return nil
 }
 
-// setAppUsage attaches the app to the project when needed and brings its usage
-// to the wanted enabled state. An existing usage is reused, never duplicated.
-func (r *projectAppResource) setAppUsage(ctx context.Context, appID, projectID string, enabled bool) (*youtrack.AppUsage, error) {
-	if enabled {
-		return r.client.EnableAppForProject(ctx, appID, projectID)
-	}
-
-	usage, err := r.client.DisableAppForProject(ctx, appID, projectID)
-	if err != nil || usage != nil {
-		return usage, err
+// setAppUsage brings the app's usage in the project, nil when the app is not
+// attached there, to the wanted enabled state. An existing usage is reused,
+// never duplicated.
+func (r *projectAppResource) setAppUsage(ctx context.Context, appID, projectID string, usage *youtrack.AppUsage, enabled bool) (*youtrack.AppUsage, error) {
+	if usage != nil {
+		if usage.Enabled == enabled {
+			return usage, nil
+		}
+		return r.client.SetAppUsageEnabled(ctx, appID, usage.ID, enabled)
 	}
 
 	attached, err := r.client.AttachAppToProject(ctx, appID, projectID)
+	if err != nil || attached.Enabled == enabled {
+		return attached, err
+	}
+
+	// YouTrack ignores enabled on attach, so the app is on until this call succeeds
+	set, err := r.client.SetAppUsageEnabled(ctx, appID, attached.ID, enabled)
 	if err != nil {
+		if detachErr := r.client.DeleteAppUsage(ctx, appID, attached.ID); detachErr != nil {
+			return nil, errors.Join(err, fmt.Errorf(errProjectAppRollbackFmt, detachErr))
+		}
 		return nil, err
 	}
-	if !attached.Enabled {
-		return attached, nil
-	}
 
-	return r.client.SetAppUsageEnabled(ctx, appID, attached.ID, false)
+	return set, nil
 }
 
-// checkNotReplaced fails when the app or its usage in the project is no longer
-// the one in the plan, which happens when the app was reinstalled or detached
-// outside of Terraform and the plan was made without a refresh. It runs before
-// any write: the framework would only reject the new ID after the change was
-// made. On create, the plan has no IDs yet and there is nothing to check.
-func (r *projectAppResource) checkNotReplaced(ctx context.Context, m *projectAppResourceModel, appID string) error {
+// checkNotReplaced fails when the app or its usage in the project, usage, is no
+// longer the one in the plan, which happens when the app was reinstalled or
+// detached outside of Terraform and the plan was made without a refresh. It runs
+// before any write: the framework would only reject the new ID after the change
+// was made. On create, the plan has no IDs yet and there is nothing to check.
+func (m *projectAppResourceModel) checkNotReplaced(appID string, usage *youtrack.AppUsage) error {
 	if !helpers.HasResourceID(m.ID) {
 		return nil
 	}
 
 	if helpers.HasResourceID(m.AppID) && m.AppID.ValueString() != appID {
 		return fmt.Errorf(errProjectAppReplacedFmt, m.AppName.ValueString(), "reinstalled", "app "+m.AppID.ValueString(), appID)
-	}
-
-	usage, err := r.client.GetAppUsageForProject(ctx, appID, m.ProjectID.ValueString())
-	if err != nil {
-		return err
 	}
 
 	now := "none"
@@ -138,41 +141,6 @@ func (r *projectAppResource) findUsage(ctx context.Context, m projectAppResource
 
 	usage, err := r.client.GetAppUsageForProject(ctx, app.ID, projectID)
 	return app.ID, usage, err
-}
-
-// detach removes the app from the project. An app that is no longer installed
-// or no longer attached is treated as already detached.
-func (r *projectAppResource) detach(ctx context.Context, m projectAppResourceModel) error {
-	appID, usage, err := r.findUsage(ctx, m)
-	if err != nil {
-		if youtrack.IsNotFound(err) {
-			return nil
-		}
-		return err
-	}
-
-	if usage == nil {
-		return nil
-	}
-
-	return r.client.DeleteAppUsage(ctx, appID, usage.ID)
-}
-
-// parseProjectAppImportID splits an import ID of the form {project_id}/{app_name}.
-// Only the first separator splits, because app names such as
-// @jetbrains/youtrack-workflow-due-date contain one while project IDs never do.
-func parseProjectAppImportID(id string) (projectID, appName string, ok bool) {
-	parts := strings.SplitN(id, projectAppImportSeparator, projectAppImportParts)
-	if len(parts) != projectAppImportParts {
-		return "", "", false
-	}
-
-	projectID, appName = strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
-	if projectID == "" || appName == "" {
-		return "", "", false
-	}
-
-	return projectID, appName, true
 }
 
 // fromAPIModel records the usage in m. app_name and project_id keep their

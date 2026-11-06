@@ -42,9 +42,6 @@ const (
 	errCannotDeriveProjectType           = "could not derive project custom field type from global custom field type %q; set field_type explicitly"
 	errCannotDeriveProjectTypeFromID     = "could not derive project custom field type from global custom field fieldType.id %q; set field_type explicitly"
 
-	projectCustomFieldImportSeparator = "/"
-	projectCustomFieldImportParts     = 2
-
 	projectFieldTypeEnum  = "EnumProjectCustomField"
 	projectFieldTypeState = "StateProjectCustomField"
 	projectFieldTypeOwned = "OwnedProjectCustomField"
@@ -486,8 +483,8 @@ func resolveBundleID(bundle *youtrack.BundleRef, field *youtrack.CustomField) (s
 }
 
 func (r *projectCustomFieldResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	parts := strings.SplitN(req.ID, projectCustomFieldImportSeparator, projectCustomFieldImportParts)
-	if len(parts) != projectCustomFieldImportParts || parts[0] == "" || parts[1] == "" {
+	projectID, fieldID, ok := helpers.SplitImportID(req.ID)
+	if !ok {
 		resp.Diagnostics.AddError(
 			errMissingProjectCustomFieldID,
 			errProjectCustomFieldImportIDInvalid,
@@ -495,8 +492,8 @@ func (r *projectCustomFieldResource) ImportState(ctx context.Context, req resour
 		return
 	}
 
-	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("project_id"), parts[0])...)
-	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), parts[1])...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("project_id"), projectID)...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), fieldID)...)
 }
 
 func (m *projectCustomFieldResourceModel) toUpsertPayload(

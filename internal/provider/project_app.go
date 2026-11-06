@@ -168,11 +168,12 @@ func (r *projectAppResource) Delete(ctx context.Context, req resource.DeleteRequ
 		return
 	}
 
-	if !helpers.HasResourceID(state.ProjectID) {
+	if !helpers.HasResourceID(state.ID) || !helpers.HasResourceID(state.AppID) {
 		return
 	}
 
-	if err := r.detach(ctx, state); err != nil {
+	// by the IDs in state only: a lookup by name could find, and remove, a usage someone else created
+	if err := r.client.DeleteAppUsage(ctx, state.AppID.ValueString(), state.ID.ValueString()); err != nil {
 		resp.Diagnostics.AddError(errDeletingProjectApp, fmt.Sprintf("Could not detach app from project: %v", err))
 	}
 }
@@ -190,9 +191,9 @@ func (r *projectAppResource) ValidateConfig(ctx context.Context, req resource.Va
 }
 
 func (r *projectAppResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	projectID, appName, ok := parseProjectAppImportID(req.ID)
+	projectID, appName, ok := helpers.SplitImportID(req.ID)
 	if !ok {
-		resp.Diagnostics.AddError(errMissingProjectAppProjectID, errProjectAppImportIDInvalid)
+		resp.Diagnostics.AddError(errInvalidProjectAppConfig, errProjectAppImportIDInvalid)
 		return
 	}
 

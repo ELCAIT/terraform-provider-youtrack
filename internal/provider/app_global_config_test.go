@@ -6,7 +6,10 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 
 	helpers "github.com/elcait/terraform-provider-youtrack/internal/helpers"
@@ -65,6 +68,8 @@ func TestReconcileSettings(t *testing.T) {
 			want:    map[string]any{"youtrackUrl": "http://youtrack:8080"},
 		},
 		{name: "null left out by YouTrack holds", written: `{"youtrackUrl":"http://youtrack:8080","webhookUrl":null}`, read: `{"youtrackUrl":"http://youtrack:8080"}`},
+		{name: "empty list left out by YouTrack holds", written: `{"youtrackUrl":"http://youtrack:8080","lightManagers":[]}`, read: `{"youtrackUrl":"http://youtrack:8080"}`},
+		{name: "empty object left out by YouTrack holds", written: `{"youtrackUrl":"http://youtrack:8080","extra":{}}`, read: `{"youtrackUrl":"http://youtrack:8080"}`},
 		{name: "empty string left out by YouTrack holds", written: `{"youtrackUrl":"http://youtrack:8080","webhookUrl":""}`, read: `{"youtrackUrl":"http://youtrack:8080"}`},
 		{
 			name:    "empty string set in YouTrack is reported",
@@ -288,4 +293,50 @@ func TestAppGlobalConfigCheckNotReinstalled(t *testing.T) {
 			helpers.AssertFieldEqual(t, "error", err != nil, tc.wantErr)
 		})
 	}
+}
+
+// TestAppGlobalConfigApplyStopsBeforeSettings checks that permitted groups that
+// cannot be written stop the apply before the settings, which replace the whole
+// document, are written.
+func TestAppGlobalConfigApplyStopsBeforeSettings(t *testing.T) {
+	t.Parallel()
+
+	var writes []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if req.Method != http.MethodGet {
+			writes = append(writes, req.Method+" "+req.URL.Path)
+			http.Error(w, "unexpected write", http.StatusInternalServerError)
+			return
+		}
+		if req.URL.Path == testProjectAppsPath {
+			writeJSONPage(t, w, req, []youtrack.App{{ID: testProjectAppID, Name: testProjectAppName}})
+			return
+		}
+		// a configuration that does not say who may use the app
+		writeJSON(t, w, map[string]any{"globalConfig": map[string]any{"enabled": true}})
+	}))
+	t.Cleanup(server.Close)
+
+	client, err := youtrack.NewClient(server.URL, "token")
+	if err != nil {
+		t.Fatalf("failed to create test client: %v", err)
+	}
+	groups, diags := types.SetValueFrom(context.Background(), types.StringType, []string{"6-0"})
+	if diags.HasError() {
+		t.Fatal(diags)
+	}
+
+	r := &appGlobalConfigResource{client: client}
+	m := &appGlobalConfigResourceModel{
+		ID:                types.StringUnknown(),
+		AppName:           types.StringValue(testProjectAppName),
+		Enabled:           types.BoolValue(true),
+		Settings:          types.StringValue(`{"a":1}`),
+		PermittedGroupIDs: groups,
+	}
+	if err = r.apply(context.Background(), m, nil); err == nil {
+		t.Fatal("apply() expected an error")
+	}
+	helpers.AssertFieldEqual(t, "writes", strings.Join(writes, ","), "")
 }

@@ -7,7 +7,7 @@ FEATURES:
   - Needs `youtrack-api-client` v1.14.0. Before v1.12.0 an app attached to more than 42 projects was reported as missing from the others, and the resource would plan to recreate it on every run.
 - Add `youtrack_app_global_config` resource for configuring an installed app instance-wide: whether it is enabled (`enabled`), its global settings (`settings`, a JSON object whose keys the app declares in its `settings.json`, best built with `jsonencode()`) and the user groups allowed to use it (`permitted_group_ids`). It takes the app's package name (`app_name`) and imports by that name. Destroying it only removes it from Terraform: the app keeps its configuration.
   - `settings` is sensitive and written as a whole whenever it changes, so a setting left out is cleared. Changing another attribute, such as `enabled`, leaves it alone. YouTrack never returns the settings an app declares as secrets, such as an API token, so a secret changed outside of Terraform is not detected, and after an import the first apply writes the value from the configuration.
-  - A setting written as `null` or `""`, which YouTrack does not store, and the order of a list of entities, which YouTrack sorts, do not show as changes. A key the app does not declare does, because YouTrack drops it.
+  - A setting written as `null`, `""`, `[]` or `{}` that YouTrack leaves out, and the order of a list of entities, which YouTrack sorts, do not show as changes. A key the app does not declare does, because YouTrack drops it.
   - The same `-refresh=false` check as `youtrack_project_app` applies after the app was reinstalled.
   - Needs `youtrack-api-client` v1.14.0.
 
