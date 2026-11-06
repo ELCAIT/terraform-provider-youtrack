@@ -3,7 +3,9 @@ package helpers
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/mail"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -23,6 +25,7 @@ const (
 	ErrInvalidEmailAddress          = "Invalid Email Address"
 	ErrInvalidPortNumber            = "Invalid Port Number"
 	ErrInvalidURL                   = "Invalid URL"
+	ErrAttributeEmptyFmt            = "%s must not be empty"
 )
 
 // AssertFieldEqual is a test helper that compares two values and reports an error if they differ.
@@ -100,6 +103,31 @@ func SetStateAndCheckError(ctx context.Context, resp interface{}, state interfac
 		diags = r.State.Set(ctx, state)
 		r.Diagnostics.Append(diags...)
 	}
+}
+
+// ValidateNotBlank adds an attribute error with the given summary for every
+// attribute, keyed by its name, that is set to a blank string. Null and unknown
+// values are left to the schema.
+func ValidateNotBlank(attributes map[string]types.String, summary string, diagnostics *diag.Diagnostics) {
+	for _, name := range slices.Sorted(maps.Keys(attributes)) {
+		if value := attributes[name]; !value.IsNull() && !value.IsUnknown() && strings.TrimSpace(value.ValueString()) == "" {
+			diagnostics.AddAttributeError(path.Root(name), summary, fmt.Sprintf(ErrAttributeEmptyFmt, name))
+		}
+	}
+}
+
+// SplitImportID splits an import ID of the form {parent}/{child}, such as
+// {project_id}/{app_name}. Only the first "/" splits, because a child such as
+// the app name @jetbrains/youtrack-workflow-due-date may contain one. Both parts
+// are trimmed and must not be blank.
+func SplitImportID(id string) (parent, child string, ok bool) {
+	parent, child, found := strings.Cut(id, "/")
+	parent, child = strings.TrimSpace(parent), strings.TrimSpace(child)
+	if !found || parent == "" || child == "" {
+		return "", "", false
+	}
+
+	return parent, child, true
 }
 
 // ValidateEmailField validates that a string field contains a valid email address if not empty.
