@@ -1,4 +1,4 @@
-## 1.5.0 (unreleased)
+## 1.5.0
 FEATURES:
 - Add mailbox integration, which turns the emails of a mail account into issues and comments:
   - `youtrack_mailbox`: an IMAP(S) or POP(S) account (`host`, `port`, `login`, `password`) or a Microsoft Exchange Online account (`protocol = "OFFICE365"` and the `microsoft_*` attributes), with its timeouts. It imports by mailbox ID. Changing `protocol` replaces the mailbox, and deleting it also deletes its mail rules.
