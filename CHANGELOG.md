@@ -6,6 +6,7 @@ FEATURES:
   - `youtrack_mail_rule`: which emails of a mailbox become issues of which project, the reporter policy, the spam filter mode, subject/body filters and the commands applied to new issues and comments. It imports by rule ID. Changing `mailbox_id` replaces the rule. An optional attribute removed from the configuration is cleared in YouTrack.
   - `youtrack_mailbox_integration_settings`: the instance-wide schedule (Quartz `cron_expression`) on which YouTrack polls every mailbox. Destroying it restores the default, every two minutes.
   - Needs `youtrack-api-client` v1.15.0. The endpoints are the ones YouTrack's administration UI uses, not part of the documented REST API; verified against YouTrack 2026.2.
+- Add `youtrack_project` data source, which looks up an existing project by its `short_name` and exposes its `id`, `name`, `description`, `leader_login`, `archived` and `template`, for instance to attach a `youtrack_mail_rule` to a project Terraform does not manage.
 
 ## 1.4.0
 FEATURES:

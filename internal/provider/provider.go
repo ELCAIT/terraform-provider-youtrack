@@ -188,6 +188,7 @@ func (p *youtrackProvider) DataSources(ctx context.Context) []func() datasource.
 	return []func() datasource.DataSource{
 		NewUserDataSource,
 		NewGroupDataSource,
+		NewProjectDataSource,
 	}
 }
 

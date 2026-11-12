@@ -3,10 +3,9 @@ variable "support_mailbox_password" {
   sensitive = true
 }
 
-resource "youtrack_project" "support" {
-  name         = "Support"
-  short_name   = "SUP"
-  leader_login = "john.doe"
+# The project already exists in YouTrack: look it up rather than create it.
+data "youtrack_project" "support" {
+  short_name = "SUP"
 }
 
 resource "youtrack_mailbox" "support" {
@@ -21,7 +20,7 @@ resource "youtrack_mailbox" "support" {
 # with the sender as reporter, ignoring newsletters.
 resource "youtrack_mail_rule" "support" {
   mailbox_id        = youtrack_mailbox.support.id
-  project_id        = youtrack_project.support.id
+  project_id        = data.youtrack_project.support.id
   maintainer_login  = "john.doe"
   to                = "support@example.com"
   spam_filter_mode  = "BLOCK_TICKETS"
