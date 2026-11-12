@@ -1,3 +1,13 @@
+## 1.5.0 (unreleased)
+FEATURES:
+- Add mailbox integration, which turns the emails of a mail account into issues and comments:
+  - `youtrack_mailbox`: an IMAP(S) or POP(S) account (`host`, `port`, `login`, `password`) or a Microsoft Exchange Online account (`protocol = "OFFICE365"` and the `microsoft_*` attributes), with its timeouts. It imports by mailbox ID. Changing `protocol` replaces the mailbox, and deleting it also deletes its mail rules.
+    - `password` and `microsoft_client_secret` are sensitive and write-only: YouTrack never returns them, so a secret changed outside of Terraform is not detected, and the first apply after an import sends the value from the configuration. They are sent on every update, because YouTrack refuses to change the host, port, login or tenant without them.
+  - `youtrack_mail_rule`: which emails of a mailbox become issues of which project, the reporter policy, the spam filter mode, subject/body filters and the commands applied to new issues and comments. It imports by rule ID. Changing `mailbox_id` replaces the rule. An optional attribute removed from the configuration is cleared in YouTrack.
+  - `youtrack_mailbox_integration_settings`: the instance-wide schedule (Quartz `cron_expression`) on which YouTrack polls every mailbox. Destroying it restores the default, every two minutes.
+  - Needs `youtrack-api-client` v1.15.0. The endpoints are the ones YouTrack's administration UI uses, not part of the documented REST API; verified against YouTrack 2026.2.
+- Add `youtrack_project` data source, which looks up an existing project by its `short_name` and exposes its `id`, `name`, `description`, `leader_login`, `archived` and `template`, for instance to attach a `youtrack_mail_rule` to a project Terraform does not manage.
+
 ## 1.4.0
 FEATURES:
 - Add `youtrack_project_app` resource for attaching an installed app, workflows included, to a project and enabling or disabling it there. Attached to a template project, the app is inherited by every project created from that template. It takes the app's package name (`app_name`, as listed by `GET /api/admin/apps`, e.g. `@jetbrains/youtrack-workflow-due-date`) and the project entity ID, and imports by `{project_id}/{app_name}`.

@@ -161,6 +161,9 @@ func (p *youtrackProvider) Resources(_ context.Context) []func() resource.Resour
 		settings.NewGlobalSettingsResource,
 		settings.NewGlobalTimeTrackingSettingsResource,
 		NewIssueLinkTypeResource,
+		settings.NewMailboxIntegrationSettingsResource,
+		NewMailboxResource,
+		NewMailRuleResource,
 		settings.NewLocaleSettingsResource,
 		settings.NewMailServerResource,
 		NewNestedGroupResource,
@@ -185,6 +188,7 @@ func (p *youtrackProvider) DataSources(ctx context.Context) []func() datasource.
 	return []func() datasource.DataSource{
 		NewUserDataSource,
 		NewGroupDataSource,
+		NewProjectDataSource,
 	}
 }
 
