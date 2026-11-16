@@ -29,6 +29,7 @@ func (m *enumBundleValueModel) toAPIModel() youtrack.EnumBundleElement {
 	}
 	item.Description = helpers.StringFromOptional(m.Description)
 	item.LocalizedName = helpers.StringFromOptional(m.LocalizedName)
+	item.Color = colorFromPlan(m.ColorID, nil)
 	return item
 }
 
@@ -42,6 +43,7 @@ func (m *enumBundleValueModel) toValueUpdate(current youtrack.EnumBundleElement,
 		Description:   optionalStringPointer(m.Description, current.Description),
 		Archived:      helpers.BoolFromOptional(m.Archived),
 		Ordinal:       &ordinal,
+		Color:         colorFromPlan(m.ColorID, current.Color),
 	}
 }
 
@@ -53,6 +55,7 @@ func enumValueAsUpdate(current youtrack.EnumBundleElement) youtrack.EnumBundleVa
 		Description:   stringPointerOrNil(current.Description),
 		Archived:      current.Archived,
 		Ordinal:       &ordinal,
+		Color:         colorOnly(current.Color),
 	}
 }
 
@@ -144,6 +147,7 @@ func (m *enumBundleResourceModel) fromAPIModel(apiModel *youtrack.EnumBundle) {
 			Description:   helpers.StringOrNull(value.Description),
 			Archived:      types.BoolValue(value.Archived),
 			Ordinal:       types.Int64Value(int64(value.Ordinal)),
+			ColorID:       colorIDFromAPI(value.Color),
 		}
 	})
 }

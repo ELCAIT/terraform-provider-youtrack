@@ -18,10 +18,12 @@ resource "youtrack_enum_bundle" "priority" {
 
   values = [
     {
-      name = "Critical"
+      name     = "Critical"
+      color_id = "20"
     },
     {
-      name = "Major"
+      name     = "Major"
+      color_id = "10"
     },
     {
       name = "Normal"
@@ -56,6 +58,7 @@ Required:
 Optional:
 
 - `archived` (Boolean) Whether this enum value is archived.
+- `color_id` (String) ID of the color style of the value, a number from 0 (the default style) to 35. The palette is fixed by YouTrack and a custom color cannot be set. When unset, the color YouTrack has is kept; to go back to the default style, set it to "0".
 - `description` (String) enum value description.
 - `localized_name` (String) Localized enum value name.
 

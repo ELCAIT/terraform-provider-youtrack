@@ -27,6 +27,7 @@ func (m *stateBundleValueModel) toAPIModel() youtrack.StateBundleElement {
 	}
 	item.Description = helpers.StringFromOptional(m.Description)
 	item.LocalizedName = helpers.StringFromOptional(m.LocalizedName)
+	item.Color = colorFromPlan(m.ColorID, nil)
 	return item
 }
 
@@ -41,6 +42,7 @@ func (m *stateBundleValueModel) toValueUpdate(current youtrack.StateBundleElemen
 		IsResolved:    helpers.BoolFromOptional(m.IsResolved),
 		Archived:      helpers.BoolFromOptional(m.Archived),
 		Ordinal:       &ordinal,
+		Color:         colorFromPlan(m.ColorID, current.Color),
 	}
 }
 
@@ -53,6 +55,7 @@ func stateValueAsUpdate(current youtrack.StateBundleElement) youtrack.StateBundl
 		IsResolved:    current.IsResolved,
 		Archived:      current.Archived,
 		Ordinal:       &ordinal,
+		Color:         colorOnly(current.Color),
 	}
 }
 
@@ -128,6 +131,7 @@ func (m *stateBundleResourceModel) fromAPIModel(apiModel *youtrack.StateBundle) 
 			IsResolved:    types.BoolValue(value.IsResolved),
 			Archived:      types.BoolValue(value.Archived),
 			Ordinal:       types.Int64Value(int64(value.Ordinal)),
+			ColorID:       colorIDFromAPI(value.Color),
 		}
 	})
 }

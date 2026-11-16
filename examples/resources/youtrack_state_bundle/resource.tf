@@ -9,10 +9,12 @@ resource "youtrack_state_bundle" "workflow" {
     {
       name        = "In Progress"
       is_resolved = false
+      color_id    = "10"
     },
     {
       name        = "Done"
       is_resolved = true
+      color_id    = "20"
     },
   ]
 }

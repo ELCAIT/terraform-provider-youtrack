@@ -16,9 +16,10 @@ import (
 )
 
 var (
-	_ resource.Resource                = &enumBundleResource{}
-	_ resource.ResourceWithConfigure   = &enumBundleResource{}
-	_ resource.ResourceWithImportState = &enumBundleResource{}
+	_ resource.Resource                   = &enumBundleResource{}
+	_ resource.ResourceWithConfigure      = &enumBundleResource{}
+	_ resource.ResourceWithImportState    = &enumBundleResource{}
+	_ resource.ResourceWithValidateConfig = &enumBundleResource{}
 )
 
 const (
@@ -45,6 +46,7 @@ type enumBundleValueModel struct {
 	Description   types.String `tfsdk:"description"`
 	Archived      types.Bool   `tfsdk:"archived"`
 	Ordinal       types.Int64  `tfsdk:"ordinal"`
+	ColorID       types.String `tfsdk:"color_id"`
 }
 
 type enumBundleResourceModel struct {
@@ -60,6 +62,7 @@ func (r *enumBundleResource) Metadata(_ context.Context, req resource.MetadataRe
 
 func (r *enumBundleResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	valueAttributes := bundleCommonValueAttributes("enum")
+	valueAttributes["color_id"] = bundleColorIDAttribute()
 
 	resp.Schema = schema.Schema{
 		Description: "YouTrack enum bundle resource. This resource manages sets of enum values. " +
