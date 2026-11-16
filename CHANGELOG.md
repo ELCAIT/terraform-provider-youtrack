@@ -1,3 +1,9 @@
+## 1.7.0
+FEATURES:
+- Add `youtrack_project_role_assignment` resource for assigning a role to a user or group within one project. The existing `youtrack_role_assignment` only manages global assignments and is unchanged.
+  - Attached to a template project, the assignment is inherited by every project created from that template. A project that already exists is not updated when the template changes.
+  - `role_id`, `project_id`, `holder_login` and `holder_type` force a replacement. `holder_type` must be `user` or `group`. It imports by the ID of the role assignment.
+
 ## 1.6.0
 FEATURES:
 - Add `color_id` to the values of `youtrack_enum_bundle` and `youtrack_state_bundle`: the color style of a value, a number from 0 to 35, from the fixed palette of YouTrack. An ID outside the palette is refused at plan time.

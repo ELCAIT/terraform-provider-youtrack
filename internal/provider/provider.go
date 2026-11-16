@@ -172,6 +172,7 @@ func (p *youtrackProvider) Resources(_ context.Context) []func() resource.Resour
 		settings.NewRestSettingsResource,
 		NewRoleResource,
 		NewRoleAssignmentResource,
+		NewProjectRoleAssignmentResource,
 		NewProjectResource,
 		NewProjectAppResource,
 		NewAppGlobalConfigResource,
