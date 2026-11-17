@@ -29,7 +29,7 @@ func (m *enumBundleValueModel) toAPIModel() youtrack.EnumBundleElement {
 	}
 	item.Description = helpers.StringFromOptional(m.Description)
 	item.LocalizedName = helpers.StringFromOptional(m.LocalizedName)
-	item.Color = colorFromPlan(m.ColorID, nil)
+	item.Color = colorForNewValue(m.ColorID)
 	return item
 }
 
@@ -43,10 +43,12 @@ func (m *enumBundleValueModel) toValueUpdate(current youtrack.EnumBundleElement,
 		Description:   optionalStringPointer(m.Description, current.Description),
 		Archived:      helpers.BoolFromOptional(m.Archived),
 		Ordinal:       &ordinal,
-		Color:         colorFromPlan(m.ColorID, current.Color),
+		Color:         colorChange(m.ColorID, current.Color),
 	}
 }
 
+// enumValueAsUpdate is the replacement that leaves current unchanged. It has no Color, since toValueUpdate only
+// sets one when the color changes.
 func enumValueAsUpdate(current youtrack.EnumBundleElement) youtrack.EnumBundleValueUpdate {
 	ordinal := current.Ordinal
 	return youtrack.EnumBundleValueUpdate{
@@ -55,7 +57,6 @@ func enumValueAsUpdate(current youtrack.EnumBundleElement) youtrack.EnumBundleVa
 		Description:   stringPointerOrNil(current.Description),
 		Archived:      current.Archived,
 		Ordinal:       &ordinal,
-		Color:         colorOnly(current.Color),
 	}
 }
 

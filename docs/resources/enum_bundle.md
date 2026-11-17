@@ -58,7 +58,7 @@ Required:
 Optional:
 
 - `archived` (Boolean) Whether this enum value is archived.
-- `color_id` (String) ID of the color style of the value, a number from 0 (the default style) to 35. The palette is fixed by YouTrack and a custom color cannot be set. When unset, the color YouTrack has is kept; to go back to the default style, set it to "0".
+- `color_id` (String) ID of the color style of the value, a number from 0 to 35. The palette is fixed by YouTrack and a custom color cannot be set. Defaults to "0", the default style, which shows the value with no color: removing `color_id` from the configuration resets the color of the value, and a color changed in YouTrack is reverted on the next apply.
 - `description` (String) enum value description.
 - `localized_name` (String) Localized enum value name.
 

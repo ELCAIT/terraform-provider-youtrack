@@ -7,7 +7,9 @@ FEATURES:
   - `youtrack_mailbox_integration_settings`: the instance-wide schedule (Quartz `cron_expression`) on which YouTrack polls every mailbox. Destroying it restores the default, every two minutes.
   - Needs `youtrack-api-client` v1.15.0. The endpoints are the ones YouTrack's administration UI uses, not part of the documented REST API; verified against YouTrack 2026.2.
 - Add `youtrack_project` data source, which looks up an existing project by its `short_name` and exposes its `id`, `name`, `description`, `leader_login`, `archived` and `template`, for instance to attach a `youtrack_mail_rule` to a project Terraform does not manage.
-- Add `color_id` to the values of `youtrack_enum_bundle` and `youtrack_state_bundle`: the color style of a value, a number from 0 (the default style) to 35, from the fixed palette of YouTrack. A value created without it gets the default style, and one left unset keeps the color YouTrack has; to go back to the default style, set it to `"0"`. An ID outside the palette is refused at plan time.
+- Add `color_id` to the values of `youtrack_enum_bundle` and `youtrack_state_bundle`: the color style of a value, a number from 0 to 35, from the fixed palette of YouTrack. An ID outside the palette is refused at plan time.
+  - It defaults to `"0"`, the default style, which shows the value with no color. Removing `color_id` from the configuration resets the color of the value, and a color changed in YouTrack is reverted on the next apply.
+  - Upgrading resets colors set outside of Terraform: the first plan after the upgrade shows `color_id` going back to `"0"` on every value colored in YouTrack whose configuration does not set it. Set `color_id` on these values to keep their colors.
   - Needs `youtrack-api-client` v1.16.0.
 
 IMPROVEMENTS:

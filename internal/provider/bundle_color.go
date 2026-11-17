@@ -9,38 +9,46 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 )
 
 const (
-	bundleValueColorIDDescription = "ID of the color style of the value, a number from 0 (the default style) to 35. " +
+	bundleValueColorIDDescription = "ID of the color style of the value, a number from 0 to 35. " +
 		"The palette is fixed by YouTrack and a custom color cannot be set. " +
-		"When unset, the color YouTrack has is kept; to go back to the default style, set it to \"0\"."
+		"Defaults to \"0\", the default style, which shows the value with no color: " +
+		"removing `color_id` from the configuration resets the color of the value, " +
+		"and a color changed in YouTrack is reverted on the next apply."
 	errInvalidBundleValueColorID = "Invalid color ID"
 )
 
-// bundleColorIDAttribute is the color of a bundle value. It is Optional+Computed: a value created without it
-// gets the default style, and one left unset in configuration keeps the color YouTrack has.
+// bundleColorIDAttribute is the color of a bundle value. A value whose configuration leaves it out gets the
+// default style, so the color is always known at plan time and a color set outside of Terraform is reverted.
 func bundleColorIDAttribute() schema.StringAttribute {
 	return schema.StringAttribute{
 		Optional:    true,
 		Computed:    true,
+		Default:     stringdefault.StaticString(youtrack.DefaultFieldStyleID),
 		Description: bundleValueColorIDDescription,
 	}
 }
 
 // ValidateConfig refuses at plan time a color ID the client would refuse at apply time.
 func (r *enumBundleResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
-	colorIDs, diags := bundleColorIDsFromConfig(ctx, req.Config, func(value *enumBundleValueModel) types.String { return value.ColorID })
-	resp.Diagnostics.Append(diags...)
-	validateBundleColorIDs(&resp.Diagnostics, colorIDs)
+	validateBundleColorConfig(ctx, req, resp, func(value *enumBundleValueModel) types.String { return value.ColorID })
 }
 
 // ValidateConfig refuses at plan time a color ID the client would refuse at apply time.
 func (r *stateBundleResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
-	colorIDs, diags := bundleColorIDsFromConfig(ctx, req.Config, func(value *stateBundleValueModel) types.String { return value.ColorID })
+	validateBundleColorConfig(ctx, req, resp, func(value *stateBundleValueModel) types.String { return value.ColorID })
+}
+
+// validateBundleColorConfig is the ValidateConfig of a bundle whose values are decoded as T, and colorID
+// returns the color of such a value.
+func validateBundleColorConfig[T any](ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse, colorID func(*T) types.String) {
+	colorIDs, diags := bundleColorIDsFromConfig(ctx, req.Config, colorID)
 	resp.Diagnostics.Append(diags...)
 	validateBundleColorIDs(&resp.Diagnostics, colorIDs)
 }
@@ -90,29 +98,32 @@ func validateBundleColorIDs(diagnostics *diag.Diagnostics, colorIDs []types.Stri
 	}
 }
 
-// colorFromPlan is the style sent for a value. An unset color is left out when the value is created, and keeps
-// the current one when the value is replaced, so that a value is only written when something differs.
-func colorFromPlan(planned types.String, current *youtrack.FieldStyle) *youtrack.FieldStyle {
+// colorForNewValue is the style sent for a value that is added. A color that is not known is left out, and the
+// value gets the default style.
+func colorForNewValue(planned types.String) *youtrack.FieldStyle {
 	if planned.IsUnknown() || planned.IsNull() {
-		return colorOnly(current)
+		return nil
 	}
 
 	return &youtrack.FieldStyle{ID: planned.ValueString()}
 }
 
-// colorOnly keeps the ID of a style read from YouTrack and drops its background, foreground and type, which are
-// derived from the ID: this is what a style built from the plan carries, so the two compare equal.
-func colorOnly(style *youtrack.FieldStyle) *youtrack.FieldStyle {
-	if style == nil || style.ID == "" {
+// colorChange is the style sent when an existing value is replaced: only a planned color that differs from the
+// current one is sent. Otherwise it is nil, and YouTrack keeps the color the value has: the current style is
+// never sent back, since the client refuses one outside the palette it knows, for instance one read from a
+// YouTrack with a larger palette.
+func colorChange(planned types.String, current *youtrack.FieldStyle) *youtrack.FieldStyle {
+	if planned.IsUnknown() || planned.IsNull() || planned.ValueString() == colorIDFromAPI(current).ValueString() {
 		return nil
 	}
 
-	return &youtrack.FieldStyle{ID: style.ID}
+	return &youtrack.FieldStyle{ID: planned.ValueString()}
 }
 
+// colorIDFromAPI is the color ID of a style read from YouTrack. A value with no style has the default one.
 func colorIDFromAPI(style *youtrack.FieldStyle) types.String {
 	if style == nil || style.ID == "" {
-		return types.StringNull()
+		return types.StringValue(youtrack.DefaultFieldStyleID)
 	}
 
 	return types.StringValue(style.ID)
