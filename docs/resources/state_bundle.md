@@ -24,10 +24,12 @@ resource "youtrack_state_bundle" "workflow" {
     {
       name        = "In Progress"
       is_resolved = false
+      color_id    = "10"
     },
     {
       name        = "Done"
       is_resolved = true
+      color_id    = "20"
     },
   ]
 }
@@ -56,6 +58,7 @@ Required:
 Optional:
 
 - `archived` (Boolean) Whether this state value is archived.
+- `color_id` (String) ID of the color style of the value, a number from 0 to 35. The palette is fixed by YouTrack and a custom color cannot be set. Defaults to "0", the default style, which shows the value with no color: removing `color_id` from the configuration resets the color of the value, and a color changed in YouTrack is reverted on the next apply.
 - `description` (String) state value description.
 - `is_resolved` (Boolean) Whether issues in this state are considered resolved.
 - `localized_name` (String) Localized state value name.

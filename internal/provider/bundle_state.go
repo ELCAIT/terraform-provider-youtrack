@@ -17,9 +17,10 @@ import (
 )
 
 var (
-	_ resource.Resource                = &stateBundleResource{}
-	_ resource.ResourceWithConfigure   = &stateBundleResource{}
-	_ resource.ResourceWithImportState = &stateBundleResource{}
+	_ resource.Resource                   = &stateBundleResource{}
+	_ resource.ResourceWithConfigure      = &stateBundleResource{}
+	_ resource.ResourceWithImportState    = &stateBundleResource{}
+	_ resource.ResourceWithValidateConfig = &stateBundleResource{}
 )
 
 const (
@@ -47,6 +48,7 @@ type stateBundleValueModel struct {
 	IsResolved    types.Bool   `tfsdk:"is_resolved"`
 	Archived      types.Bool   `tfsdk:"archived"`
 	Ordinal       types.Int64  `tfsdk:"ordinal"`
+	ColorID       types.String `tfsdk:"color_id"`
 }
 
 type stateBundleResourceModel struct {
@@ -62,6 +64,7 @@ func (r *stateBundleResource) Metadata(_ context.Context, req resource.MetadataR
 
 func (r *stateBundleResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	valueAttributes := bundleCommonValueAttributes("state")
+	valueAttributes["color_id"] = bundleColorIDAttribute()
 	valueAttributes["is_resolved"] = schema.BoolAttribute{
 		Optional:      true,
 		Computed:      true,

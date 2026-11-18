@@ -27,6 +27,7 @@ func (m *stateBundleValueModel) toAPIModel() youtrack.StateBundleElement {
 	}
 	item.Description = helpers.StringFromOptional(m.Description)
 	item.LocalizedName = helpers.StringFromOptional(m.LocalizedName)
+	item.Color = colorForNewValue(m.ColorID)
 	return item
 }
 
@@ -41,9 +42,12 @@ func (m *stateBundleValueModel) toValueUpdate(current youtrack.StateBundleElemen
 		IsResolved:    helpers.BoolFromOptional(m.IsResolved),
 		Archived:      helpers.BoolFromOptional(m.Archived),
 		Ordinal:       &ordinal,
+		Color:         colorChange(m.ColorID, current.Color),
 	}
 }
 
+// stateValueAsUpdate is the replacement that leaves current unchanged. It has no Color, since toValueUpdate only
+// sets one when the color changes.
 func stateValueAsUpdate(current youtrack.StateBundleElement) youtrack.StateBundleValueUpdate {
 	ordinal := current.Ordinal
 	return youtrack.StateBundleValueUpdate{
@@ -128,6 +132,7 @@ func (m *stateBundleResourceModel) fromAPIModel(apiModel *youtrack.StateBundle) 
 			IsResolved:    types.BoolValue(value.IsResolved),
 			Archived:      types.BoolValue(value.Archived),
 			Ordinal:       types.Int64Value(int64(value.Ordinal)),
+			ColorID:       colorIDFromAPI(value.Color),
 		}
 	})
 }

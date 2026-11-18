@@ -3,10 +3,12 @@ resource "youtrack_enum_bundle" "priority" {
 
   values = [
     {
-      name = "Critical"
+      name     = "Critical"
+      color_id = "20"
     },
     {
-      name = "Major"
+      name     = "Major"
+      color_id = "10"
     },
     {
       name = "Normal"
