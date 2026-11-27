@@ -35,21 +35,21 @@ const (
 )
 
 // lookupHolderByLogin looks up a user or group by login/name and returns the holder.
-func (r *roleAssignmentResource) lookupHolderByLogin(ctx context.Context, login string, holderType types.String, diagnostics *diag.Diagnostics) *youtrack.Holder {
+func lookupHolderByLogin(ctx context.Context, client *youtrack.Client, login string, holderType types.String, diagnostics *diag.Diagnostics) *youtrack.Holder {
 	if !holderType.IsNull() && !holderType.IsUnknown() {
-		return r.lookupHolderByExplicitType(ctx, login, strings.ToLower(holderType.ValueString()), diagnostics)
+		return lookupHolderByExplicitType(ctx, client, login, strings.ToLower(holderType.ValueString()), diagnostics)
 	}
 
-	return r.lookupHolderAuto(ctx, login, diagnostics)
+	return lookupHolderAuto(ctx, client, login, diagnostics)
 }
 
-func (r *roleAssignmentResource) lookupHolderByExplicitType(ctx context.Context, login, holderTypeValue string, diagnostics *diag.Diagnostics) *youtrack.Holder {
+func lookupHolderByExplicitType(ctx context.Context, client *youtrack.Client, login, holderTypeValue string, diagnostics *diag.Diagnostics) *youtrack.Holder {
 	var holder *youtrack.Holder
 	var err error
 
 	switch holderTypeValue {
 	case holderTypeUser:
-		holder, err = r.client.GetUserByLogin(ctx, login)
+		holder, err = client.GetUserByLogin(ctx, login)
 		if err != nil {
 			diagnostics.AddError(
 				errLookupHolder,
@@ -58,7 +58,7 @@ func (r *roleAssignmentResource) lookupHolderByExplicitType(ctx context.Context,
 			return nil
 		}
 	case holderTypeGroup:
-		holder, err = r.client.GetUserGroupByName(ctx, login)
+		holder, err = client.GetUserGroupByName(ctx, login)
 		if err != nil {
 			diagnostics.AddError(
 				errLookupHolder,
@@ -77,13 +77,13 @@ func (r *roleAssignmentResource) lookupHolderByExplicitType(ctx context.Context,
 	return holder
 }
 
-func (r *roleAssignmentResource) lookupHolderAuto(ctx context.Context, login string, diagnostics *diag.Diagnostics) *youtrack.Holder {
-	holder, err := r.client.GetUserByLogin(ctx, login)
+func lookupHolderAuto(ctx context.Context, client *youtrack.Client, login string, diagnostics *diag.Diagnostics) *youtrack.Holder {
+	holder, err := client.GetUserByLogin(ctx, login)
 	if err == nil {
 		return holder
 	}
 
-	holder, err = r.client.GetUserGroupByName(ctx, login)
+	holder, err = client.GetUserGroupByName(ctx, login)
 	if err != nil {
 		diagnostics.AddError(
 			errLookupHolder,
@@ -97,7 +97,7 @@ func (r *roleAssignmentResource) lookupHolderAuto(ctx context.Context, login str
 
 // buildAPIRoleAssignment creates a youtrack.AssignedRole from the model data.
 func (r *roleAssignmentResource) buildAPIRoleAssignment(ctx context.Context, model *roleAssignmentResourceModel, diagnostics *diag.Diagnostics) *youtrack.AssignedRole {
-	holder := r.lookupHolderByLogin(ctx, model.HolderLogin.ValueString(), model.HolderType, diagnostics)
+	holder := lookupHolderByLogin(ctx, r.client, model.HolderLogin.ValueString(), model.HolderType, diagnostics)
 	if holder == nil {
 		return nil
 	}
